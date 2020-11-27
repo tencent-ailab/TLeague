@@ -1,0 +1,25 @@
+python -m tleague.scripts.run_ppo_all --n_process 32 \
+    --clust_spec_csv_path ../sandbox/clust_spec_example.csv \
+    --tmux_sess zzz  \
+    --env sc2full_formal2  \
+    --policy tpolicies.new_actions.mnet.MNet \
+    --policy_config "{'test': False, 'rl': True, 'fix_all_embed': True}" \
+    --mutable_hyperparam_type MutableHyperparamPreDefPartialPerturb  \
+    --hyperparam_config_name MutableHyperparamPreDefPartialPerturb_Config_SC2v2 \
+    --noforce_overwrite_remote \
+    --mute_actor_msg  \
+    --game_mgr_type ACMatchMakingGameMgr \
+    --leagmgr_save_checkpoint_root zzz_chkpoints \
+    --learner PPOLearner  \
+    --learner_config "{'vf_coef': 0.5, 'max_grad_norm': 0.5, 'distill_coef': [5e-3, 1e-3, 1e-2, 1e-2, 1e-3, 1e-2, 1e-2, 1e-2, 1e-2, 1e-3, 1e-2], 'ent_coef': [1e-2, 1e-2, 1e-3, 1e-3, 1e-2, 1e-3, 1e-3, 1e-3, 1e-3, 1e-2, 1e-3]}" \
+    --lrn_total_timesteps 500000 \
+    --unroll_length 32 \
+    --batch_size 4 \
+    --lrn_rm_size 32 \
+    --nolrn_adv_normalize  \
+    --leagmgr_save_interval_secs 3600 \
+    --n_v 17 \
+    --lrn_rwd_shape \
+    --lrn_merge_pi \
+    --noactor_rwd_shape \
+    --local_worker_pre_cmd "source /Users/pengsun/miniconda3/etc/profile.d/conda.sh && conda activate tlea && conda deactivate && conda activate tlea && "

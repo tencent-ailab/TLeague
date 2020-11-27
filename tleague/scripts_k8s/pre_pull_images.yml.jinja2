@@ -1,0 +1,48 @@
+{# pre-pull images into each node #}
+{% set image = "ccr.ccs.tencentyun.com/sc2ai/tleague-scii470:v5.17" %}
+{% set docker_registry_credential = "tke-dockreg-cred" %}
+{% set node_key = "type" %}
+{% set node_value = "cpu" %}
+{% set n_nodes = 1 %}
+
+kind: ReplicaSet
+apiVersion: extensions/v1beta1
+metadata:
+  name: pre-pull-image
+spec:
+  replicas: {{ n_nodes }}
+  template:
+    metadata:
+      labels:
+        hasOnePodOnNode: yy
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: {{ node_key }}
+                operator: In
+                values:
+                - {{ node_value }}
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchExpressions:
+                - key: hasOnePodOnNode
+                  operator: In
+                  values:
+                  - yy
+              topologyKey: "kubernetes.io/hostname"
+{% if docker_registry_credential != "" %}
+      imagePullSecrets:
+      - name: {{ docker_registry_credential }}
+{% endif %}
+      containers:
+      - name: tmp-pre-pull-image
+        image: {{ image }}
+        imagePullPolicy: IfNotPresent
+        command:
+        - "sleep"
+        args:
+        - "36000000"

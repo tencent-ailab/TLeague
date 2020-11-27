@@ -1,0 +1,5 @@
+job,ip,port1,port2,cuda_visible_devices,ssh_username,ssh_password,ssh_port
+learner,localhost,10001,10002,,,,
+actor,localhost,20001,,,,,
+model_pool,localhost,10003,10004,,,,
+league_mgr,localhost,10005,,,,,

@@ -1,0 +1,594 @@
+{% set session = 'im1721-ft' %}
+{% set actor_use_statefullset = false %}
+{% set image = "ccr.ccs.tencentyun.com/sc2ai/tleague-sciimv11:" %}
+{% set learner_image = "ccr.ccs.tencentyun.com/sc2ai/tleague-gpu-hvd-sciimv11:" %}
+{% set docker_registry_credential = "tke-dockreg-cred" %}
+{% set require_resources = true %}
+{% set pvc_name = "pvc-share-full" %}
+{% set chkpoints_zoo_pvc_sub_dir = "chkpoints_zoo/" %}
+{% set chkpoints_pvc_sub_dir = chkpoints_zoo_pvc_sub_dir + session + "_chkpoints" %}
+{% set replay_name = "extmv10_zvz" %}
+{% set replays_pvc_sub_dir = "replays/" %}
+{% set replay_dir_pvc_sub_dir = replays_pvc_sub_dir + replay_name %}
+{% set replays_local_root = "/root/replays/" %}
+{# common #}
+{% set replay_ds_pvc_sub_dir = "replay_ds/" %}
+{% set replay_ds_local_root = "/root/replay_ds/" %}
+{% set replay_converter = "timitate.lib5.pb2all_converter.PB2AllConverter" %}
+{% set converter_config = {
+  'zstat_data_src': '/root/replay_ds/rp1706-mv9-zstat',
+  'input_map_size': (128, 128),
+  'output_map_size': (128, 128),
+  'delete_useless_selection': False,
+  'dict_space': True,
+  'max_bo_count': 50,
+  'max_bobt_count': 20,
+  'zstat_zeroing_prob': 0.1,
+  'zmaker_version': 'v5',
+} %}
+{% set use_gpu_inf = true %}
+{# model pool#}
+{% if use_gpu_inf %}
+  {% set n_model_pools = 1 %}
+{% else %}
+  {% set n_model_pools = 15 %}
+{% endif %}
+{% set model_pool_port1 = 10003 %}
+{% set model_pool_port2 = 10004 %}
+{% set model_pool_verbose = 11 %}
+{# learner #}
+{% set n_hosts = 2 %}
+{% if use_gpu_inf %}
+  {% set n_gpus_per_host = 7 %}
+{% else %}
+  {% set n_gpus_per_host = 8 %}
+{% endif %}
+{% set lrn_port_base = 3003 %}
+{% set replay_filelist = replays_local_root + "471_48x_49x_mv9.filter.shuffle.mmr5000.DupVal500.csv" %}
+{% set checkpoints_root = "/root/results/" %}
+{% set checkpoints_dir = checkpoints_root + session + "_chkpoints" %}
+{% set restore_checkpoint_path = checkpoints_dir + "/checkpoint_init" %}
+{% set learning_rate = 0.0001 %}
+{% set rm_size = 128000 %}
+{% set max_clip_grad_norm = 0 %}
+{% set min_train_sample_num = 5000 %}
+{% set min_val_sample_num = 64 %}
+{% set batch_size = 32 %}
+{% set print_interval = 30 %}
+{% set checkpoint_interval = 2000 %}
+{% set num_val_batches = 10 %}
+{% set policy = "tpolicies.net_zoo.mnet_v5.mnet_v5d5" %}
+{% set policy_config = {
+  'use_xla': True,
+  'test': False,
+  'rl': False,
+  'use_lstm': True,
+  'nlstm': 384,
+  'hs_len': 384*2,
+  'lstm_duration': 1,
+  'lstm_dropout_rate': 0.5,
+  'use_base_mask': True,
+  'lstm_cell_type': 'lstm',
+  'lstm_layer_norm': True,
+  'weight_decay': 0.0000000001,
+  'arg_scope_type': 'type_a',
+  'endpoints_verbosity': 10,
+  'use_self_fed_heads': False,
+  'use_loss_type': 'il',
+  'zstat_embed_version': 'v3',
+} %}
+{% set inf_policy_config = {
+  'rollout_len': 1,
+  'use_xla': True,
+  'test': True,
+  'rl': False,
+  'use_lstm': True,
+  'nlstm': 384,
+  'hs_len': 384*2,
+  'lstm_duration': 1,
+  'lstm_dropout_rate': 0.5,
+  'use_base_mask': True,
+  'lstm_cell_type': 'lstm',
+  'lstm_layer_norm': True,
+  'weight_decay': 0.0000000001,
+  'arg_scope_type': 'type_a',
+  'endpoints_verbosity': 10,
+  'use_self_fed_heads': True,
+  'use_loss_type': 'none',
+  'zstat_embed_version': 'v3',
+} %}
+{% set actor_use_policy = true %}
+{% set hvd_ssh_port = 9537 %}
+{% set unroll_length = 32 %}
+{% set rollout_length = 16 %}
+{% set pub_interval = 100 %}
+{% set repeat_training_task = true %}
+{% set lrn_tr_tb_port = 7201 %}
+{% set lrn_va_tb_port = 7202 %}
+{# actors per gpu (learner) #}
+{% if use_gpu_inf %}
+  {% set n_actors_per_gpu = 40 %}
+{% else %}
+  {% set n_actors_per_gpu = 25 %}
+{% endif %}
+{% set agent = "tleague.actors.agent.PPOAgent2" %}
+{% set replay_dir = replays_local_root + replay_name %}
+{% set log_interval = 50 %}
+{% set update_model_freq = 64 %}
+{% set step_mul = 1 %}
+{% set log_interval_steps = 51 %}
+{# inference server #}
+{% set infserver_config = {
+  'outputs': [],
+  'update_model_seconds': 30
+} %}
+{% set infserver_batch_size = 16 %}
+{% set parallel_infserver_num = 4 %}
+{% set infserver_batch_worker_num = 4 %}
+
+{# --- model pools --- #}
+{% if true %}
+{% for i in range(n_model_pools) %}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ session }}-mp-{{ i }}
+  labels:
+    session: {{ session }}
+    job: model-pool-{{ i }}
+    type: model-pool
+spec:
+  selector:
+    session: {{ session }}
+    job: model-pool-{{ i }}
+  ports:
+  - port: {{ model_pool_port1 }}
+    name: port1
+  - port: {{ model_pool_port2 }}
+    name: port2
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ session }}-mp-{{ i }}
+  labels:
+    session: {{ session }}
+    job: model-pool-{{ i }}
+    type: model-pool
+spec:
+  nodeSelector:
+    type: network
+{% if docker_registry_credential %}
+  imagePullSecrets:
+  - name: {{ docker_registry_credential }}
+{% endif %}
+  restartPolicy: Never  # if failure, let it die
+  containers:
+    - name: {{ session }}-mp-container
+      image: {{ learner_image }}
+      ports:
+      - containerPort: {{ model_pool_port1 }}
+      - containerPort: {{ model_pool_port2 }}
+{% if require_resources %}
+      resources:
+        limits:
+          nvidia.com/gpu: 0
+        requests:
+          nvidia.com/gpu: 0
+          cpu: 20
+          memory: 60Gi
+{% endif %}
+      command:
+      - "python"
+      args:
+      - "-m"
+      - "tleague.scripts.run_model_pool"
+      - "--ports={{ model_pool_port1 }}:{{ model_pool_port2 }}"
+      - "--verbose={{ model_pool_verbose }}"
+{% endfor %}
+{% endif %}
+{# --- the learner and actors per gpu (learner) --- #}
+{% for j in range(n_hosts - 1, -1, -1) %}
+{# --- each host corresponds to a service owning a DNS name #}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ session }}-lrn-{{ j }}
+  labels:
+    session: {{ session }}
+    type: im-learner
+    host: host-{{ j }}
+spec:
+  selector:
+    session: {{ session }}
+    type: im-learner
+    host: host-{{ j }}
+  ports:
+  - port: {{ hvd_ssh_port }}
+    name: port-ssh
+{% for k in range(n_gpus_per_host) %}
+  - port: {{ lrn_port_base + 2*k}}
+    name: port{{ 2*k }}
+  - port: {{ lrn_port_base + 2*k + 1 }}
+    name: port{{ 2*k + 1 }}
+{% endfor %}
+{% if lrn_tr_tb_port %}
+  - port: {{ lrn_tr_tb_port }}
+    name: port-tb
+{% endif %}
+{% if lrn_va_tb_port %}
+  - port: {{ lrn_va_tb_port }}
+    name: port-va
+{% endif %}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ session }}-lrn-{{ j }}
+  labels:
+    session: {{ session }}
+    type: im-learner
+    host: host-{{ j }}
+spec:
+  nodeSelector:
+    type: gpu
+  restartPolicy: Never  # if failure, let it die
+  volumes:
+    - name: training-log-dir
+      emptyDir: {}
+    - name: validation-log-dir
+      emptyDir: {}
+    - name: data-dir
+      persistentVolumeClaim:
+        claimName: {{ pvc_name }}
+{% if docker_registry_credential %}
+  imagePullSecrets:
+  - name: {{ docker_registry_credential }}
+{% endif %}
+  containers:
+    - name: {{ session }}-lrn-{{ j }}-container
+      image: {{ learner_image }}
+      ports:
+      - containerPort: {{ hvd_ssh_port }}
+{% for k in range(n_gpus_per_host) %}
+      - containerPort: {{ lrn_port_base + 2*k }}
+      - containerPort: {{ lrn_port_base + 2*k + 1}}
+{% endfor %}
+{% if require_resources %}
+      resources:
+        limits:
+          nvidia.com/gpu: {{ n_gpus_per_host }}
+        requests:
+          nvidia.com/gpu: {{ n_gpus_per_host }}
+          cpu: 40
+          memory: 200Gi
+{% endif %}
+      volumeMounts:
+      - name: training-log-dir
+        mountPath: /root/work/training_log
+      - name: validation-log-dir
+        mountPath: /root/work/validation_log
+      - name: data-dir
+        mountPath: {{ checkpoints_dir }}
+        subPath: {{ chkpoints_pvc_sub_dir }}
+      - name: data-dir
+        mountPath: {{ replays_local_root }}
+        subPath: {{ replays_pvc_sub_dir }}
+      - name: data-dir
+        mountPath: {{ replay_ds_local_root }}
+        subPath: {{ replay_ds_pvc_sub_dir }}
+      env:
+      - name: NCCL_DEBUG
+        value: "INFO"
+{% if j == 0 %}
+{# --- run the mpirun/horovodrun command --- #}
+      command:
+      - "tleague_horovodrun"
+      args:
+      - "--verbose"
+      - "--exclude-env-vars-pattern"
+      - "{{ session }}"
+      - "--hierarchical-allreduce"
+      - "--start-timeout"
+      - "1800"
+      - "-p"
+      - "{{ hvd_ssh_port }}"
+      - "-np"
+      - "{{ n_hosts * n_gpus_per_host }}"
+      - "-H"
+{% set sep = joiner(',') %}
+      - "{% for jj in range(n_hosts) %}{{ sep() }}{{ session }}-lrn-{{ jj }}:{{ n_gpus_per_host }}{% endfor %}"
+      - "python"
+      - "-m"
+      - "tleague.scripts.run_imitation_learner3"
+{% for ind_host in range(n_hosts) %}
+{% set sep = joiner(',') %}
+      - "--learner_spec={% for gpu_id in range(n_gpus_per_host) %}{{ sep() }}{{ gpu_id }}:{{ lrn_port_base + 2*gpu_id }}:{{ lrn_port_base + 2*gpu_id + 1 }}{% endfor %}"
+{% endfor %}
+      - "--replay_converter={{ replay_converter }}"
+      - "--converter_config={{ converter_config }}"
+      - "--replay_filelist={{ replay_filelist }}"
+      - "--checkpoints_dir={{ checkpoints_dir }}"
+      - "--restore_checkpoint_path={{ restore_checkpoint_path }}"
+      - "--learning_rate={{ learning_rate }}"
+      - "--min_train_sample_num={{ min_train_sample_num }}"
+      - "--min_val_sample_num={{ min_val_sample_num }}"
+      - "--batch_size={{ batch_size }}"
+      - "--rm_size={{ rm_size }}"
+      - "--max_clip_grad_norm={{ max_clip_grad_norm }}"
+      - "--print_interval={{ print_interval }}"
+      - "--checkpoint_interval={{ checkpoint_interval }}"
+      - "--num_val_batches={{ num_val_batches }}"
+      - "--policy={{ policy }}"
+      - "--policy_config={{ policy_config }}"
+      - "--unroll_length={{ unroll_length }}"
+      - "--rollout_length={{ rollout_length }}"
+      - "--pub_interval={{ pub_interval }}"
+      - "--train_generator_worker_num={{ 6 }}"
+{% set sep = joiner(',') %}
+      - "--model_pool_addrs={% for i in range(n_model_pools) %}{{ sep() }}{{ session }}-mp-{{ i }}:{{ model_pool_port1 }}:{{ model_pool_port2 }}{% endfor %}"
+      - "--{% if repeat_training_task %}repeat_training_task{% else %}norepeat_training_task{% endif %}"
+{% else %}
+{# --- start an ssh deamon and run an arbitray command that occupies the container --- #}
+      command:
+      - "bash"
+      - "-c"
+      args:
+      - "/usr/sbin/sshd -p {{ hvd_ssh_port }}; sleep {{ 3600 * 24 * 7 * 52 * 3}}"
+{% endif %}
+{# --- endif j == 0 --- #}
+{% if j == 0 and lrn_tr_tb_port %}
+{# --- start tr tensorboard on host 0 --- #}
+    - name: {{ session }}-tb-tr-lrn-{{ j }}-container
+      image: {{ learner_image }}
+      ports:
+      - containerPort: {{ lrn_tr_tb_port }}
+      volumeMounts:
+      - name: training-log-dir
+        mountPath: /root/training_log
+      env:
+      - name: CUDA_VISIBLE_DEVICES
+        value: ""
+      command:
+      - "tensorboard"
+      args:
+      - "--logdir=/root/training_log/rank0"
+      - "--port={{ lrn_tr_tb_port }}"
+{% endif %}
+{% if j == 0 and lrn_va_tb_port %}
+{# --- start va tensorboard on host 0 --- #}
+    - name: {{ session }}-tb-va-lrn-{{ j }}-container
+      image: {{ learner_image }}
+      ports:
+      - containerPort: {{ lrn_va_tb_port }}
+      volumeMounts:
+      - name: validation-log-dir
+        mountPath: /root/validation_log
+      env:
+      - name: CUDA_VISIBLE_DEVICES
+        value: ""
+      command:
+      - "tensorboard"
+      args:
+      - "--logdir=/root/validation_log/rank0"
+      - "--port={{ lrn_va_tb_port }}"
+{% endif %}
+{% for k in range(n_gpus_per_host) %}
+{# --- the actors correspond to host j, localrank k--- #}
+---
+{% if actor_use_statefullset %}
+kind: StatefulSet
+apiVersion: apps/v1
+{% else %}
+kind: ReplicaSet
+apiVersion: extensions/v1beta1
+{% endif %}
+metadata:
+  name: {{ session }}-actor-lrn-{{ j }}-localrank{{ k }}
+  labels:
+    session: {{ session }}
+    type: actor
+    host: host-{{ j }}
+    localrank: localrank-{{ k }}
+spec:
+  replicas: {{ n_actors_per_gpu }}
+{% if actor_use_statefullset %}
+  serviceName: "actor"
+  selector:
+    matchLabels:
+      session: {{ session }}
+      type: actor
+      host: host-{{ j }}
+      localrank: localrank-{{ k }}
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      partition: 0
+{% endif %}
+  template:
+    metadata:
+      labels:
+        session: {{ session }}
+        type: actor
+        host: host-{{ j }}
+        localrank: localrank-{{ k }}
+    spec:
+      nodeSelector:
+        type: cpu
+      volumes:
+      - name: data-dir
+        persistentVolumeClaim:
+          claimName: {{ pvc_name }}
+{% if docker_registry_credential != "" %}
+      imagePullSecrets:
+      - name: {{ docker_registry_credential }}
+{% endif %}
+      containers:
+      - name: {{ session }}-actor-lrn-{{ j }}-localrank{{ k }}-container
+        image: {{ image }}
+        imagePullPolicy: IfNotPresent
+{% if require_resources %}
+        resources:
+          limits:
+            nvidia.com/gpu: 0
+          requests:
+            nvidia.com/gpu: 0
+            cpu: {% if use_gpu_inf %}1{% else %}2{% endif %}
+
+            memory: {% if use_gpu_inf %}2Gi{% else %}4Gi{% endif %}
+
+{% endif %}
+        volumeMounts:
+        - name: data-dir
+          mountPath: {{ replay_dir }}
+          subPath: {{ replay_dir_pvc_sub_dir }}
+        - name: data-dir
+          mountPath: {{ replay_ds_local_root }}
+          subPath: {{ replay_ds_pvc_sub_dir }}
+        env:
+        - name: CUDA_VISIBLE_DEVICES
+          value: ""
+        - name: SC2PATH
+          value: "/root/SC2/4.7.1"
+        command:
+        - "python"
+        args:
+        - "-m"
+        - "tleague.scripts.run_replay_actor"
+        - "--learner_addr={{ session }}-lrn-{{ j }}:{{ lrn_port_base + 2*k }}:{{ lrn_port_base + 2*k + 1 }}"
+        - "--replay_converter={{ replay_converter }}"
+        - "--agent={{ agent }}"
+        - "--converter_config={{ converter_config }}"
+        - "--replay_dir={{ replay_dir }}"
+        - "--step_mul={{ step_mul }}"
+        - "--unroll_length={{ unroll_length }}"
+        - "--log_interval={{ log_interval }}"
+        - "--update_model_freq={{ update_model_freq }}"
+        - "{% if actor_use_policy %}--policy={{ policy }}{% endif %}"
+        - "--policy_config={% if use_gpu_inf %}{{ inf_policy_config }}{% else %}{{ policy_config }}{% endif %}"
+{% set sep = joiner(',') %}
+        - "--model_pool_addrs={% for i in range(n_model_pools) %}{{ sep() }}{{ session }}-mp-{{ i }}:{{ model_pool_port1 }}:{{ model_pool_port2 }}{% endfor %}"
+{% set sep = joiner(',') %}
+        - "{% if use_gpu_inf %}--infserver_addr={% for m in range(parallel_infserver_num) %}{{ sep() }}{{ session }}-infserver-{{ j }}:{{ lrn_port_base - 1 - m }}{% endfor %}{% endif %}"
+        - "--SC2_bin_root=/root"
+{% endfor %}
+{# --- endfor k --- #}
+{% endfor %}
+{# --- endfor j --- #}
+
+{% if use_gpu_inf %}
+{% for j in range(n_hosts) %}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ session }}-infserver-{{ j }}
+  labels:
+    session: {{ session }}
+    type: im-infserver
+    host: host-{{ j }}
+spec:
+  selector:
+    session: {{ session }}
+    type: im-infserver
+    host: host-{{ j }}
+  ports:
+{% for m in range(parallel_infserver_num) %}
+  - port: {{ lrn_port_base - 1 - m}}
+    name: port-inf-{{ m }}
+{% endfor %}
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ session }}-infserver-{{ j }}
+  labels:
+    session: {{ session }}
+    type: im-infserver
+    host: host-{{ j }}
+spec:
+  affinity:
+    podAffinity:
+      requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchExpressions:
+          - key: type
+            operator: In
+            values:
+            - im-learner
+          - key: host
+            operator: In
+            values:
+            - host-{{ j }}
+        topologyKey: "kubernetes.io/hostname"
+  nodeSelector:
+    type: gpu
+  restartPolicy: Never  # if failure, let it die
+  volumes:
+    - name: data-dir
+      persistentVolumeClaim:
+        claimName: {{ pvc_name }}
+{% if docker_registry_credential %}
+  imagePullSecrets:
+  - name: {{ docker_registry_credential }}
+{% endif %}
+  containers:
+    - name: {{ session }}-infserver-{{ j }}-container
+      image: {{ learner_image }}
+      ports:
+{% for m in range(parallel_infserver_num) %}
+      - containerPort: {{ lrn_port_base - 1 - m }}
+{% endfor %}
+{% if require_resources %}
+      resources:
+        limits:
+          nvidia.com/gpu: 1
+        requests:
+          nvidia.com/gpu: 1
+          cpu: 10
+          memory: 20Gi
+{% endif %}
+      volumeMounts:
+      - name: data-dir
+        mountPath: {{ checkpoints_dir }}
+        subPath: {{ chkpoints_pvc_sub_dir }}
+      - name: data-dir
+        mountPath: {{ replays_local_root }}
+        subPath: {{ replays_pvc_sub_dir }}
+      - name: data-dir
+        mountPath: {{ replay_ds_local_root }}
+        subPath: {{ replay_ds_pvc_sub_dir }}
+      env:
+      - name: NCCL_DEBUG
+        value: "INFO"
+      command:
+      - "tleague_horovodrun"
+      args:
+      - "--verbose"
+      - "--exclude-env-vars-pattern"
+      - "{{ session }}"
+      - "-p"
+      - "{{ hvd_ssh_port }}"
+      - "-np"
+      - "{{ parallel_infserver_num }}"
+      - "-H"
+      - "localhost:{{ parallel_infserver_num }}"
+      - "python3"
+      - "-m"
+      - "tleague.scripts.run_inference_server"
+      - "--hvd_run"
+      - "--port={{ lrn_port_base - 1 }}"
+      - "--replay_converter={{ replay_converter }}"
+      - "--converter_config={{ converter_config }}"
+      - "--batch_size={{ infserver_batch_size }}"
+      - "--policy={{ policy }}"
+      - "--policy_config={{ inf_policy_config }}"
+{% set sep = joiner(',') %}
+      - "--model_pool_addrs={% for i in range(n_model_pools) %}{{ sep() }}{{ session }}-mp-{{ i }}:{{ model_pool_port1 }}:{{ model_pool_port2 }}{% endfor %}"
+      - "--infserver_config={{ infserver_config }}"
+      - "--batch_worker_num={{ infserver_batch_worker_num }}"
+{% endfor %}
+{# --- endfor j --- #}
+{% endif %}

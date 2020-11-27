@@ -1,0 +1,34 @@
+{% set tmp_name = 'tmp0926' %}
+{% set image = "ccr.ccs.tencentyun.com/sc2ai/tleague-scii470:20190825123455" %}
+{% set docker_registry_credential = "tke-dockreg-cred" %}
+
+
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ tmp_name }}
+  labels:
+    tmpname: {{ tmp_name }}
+spec:
+  nodeSelector:
+    type: cpu
+{% if docker_registry_credential %}
+  imagePullSecrets:
+  - name: {{ docker_registry_credential }}
+{% endif %}
+  containers:
+    - name: {{ tmp_name }}-cont
+      image: {{ image }}
+      imagePullPolicy: IfNotPresent
+      resources:
+        limits:
+          nvidia.com/gpu: 0
+        requests:
+          nvidia.com/gpu: 0
+          cpu: 3600m
+          memory: 6Gi
+      command:
+      - "bash"
+      - "-c"
+      args:
+      - "sleep {{ 3600 * 24 * 7 * 52 * 3}}"

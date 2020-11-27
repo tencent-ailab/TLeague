@@ -1,0 +1,82 @@
+{% set session = 'trdma2011' %}
+{% set time_tag = "20200805104904" %}
+{% set image = "ccr.ccs.tencentyun.com/sc2ai/tleague-scii4100:" + time_tag %}
+{% set learner_image = "ccr.ccs.tencentyun.com/sc2ai/tleague-gpu-hvd-scii4100:" + time_tag %}
+{% set docker_registry_credential = "tmp-peng-cred" %}
+{% set require_resources = true %}
+{% set n_hosts = 2 %}
+{% set n_gpus_per_host = 8 %}
+{% set hvd_ssh_port = 9969 %}
+
+
+{% for j in range(n_hosts - 1, -1, -1) %}
+{# --- each host corresponds to a service owning a DNS name #}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ session }}-h{{ j }}
+  labels:
+    session: {{ session }}
+    type: learner
+spec:
+  selector:
+    session: {{ session }}
+    type: learner
+    host: host-{{ j }}
+  ports:
+  - port: {{ hvd_ssh_port }}
+    name: port-ssh
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: {{ session }}-h{{ j }}
+  labels:
+    session: {{ session }}
+    type: learner
+    host: host-{{ j }}
+spec:
+  restartPolicy: Never  # if failure, let it die
+  volumes:
+  - name: training-log-dir
+    emptyDir: {}
+{% if docker_registry_credential %}
+  imagePullSecrets:
+  - name: {{ docker_registry_credential }}
+{% endif %}
+  containers:
+    - name: {{ session }}-h{{ j }}-container
+      image: {{ learner_image }}
+      ports:
+      - containerPort: {{ hvd_ssh_port }}
+      resources:
+        limits:
+          nvidia.com/gpu: {{ n_gpus_per_host }}
+          rdma/hca: 1
+        requests:
+          nvidia.com/gpu: {{ n_gpus_per_host }}
+          cpu: 18
+          memory: 60Gi
+      env:
+      - name: NCCL_DEBUG
+        value: "INFO"
+      - name: NCCL_DEBUG_SUBSYS
+        value: "NET"
+{% if j == 0 %}
+{# --- run the mpirun/horovodrun command --- #}
+      command:
+      - "sleep"
+      args:
+      - "{{ 3600 * 24 * 7 * 52 * 3}}"
+{% else %}
+{# --- start an ssh deamon and run an arbitray command that occupies the container --- #}
+      command:
+      - "bash"
+      - "-c"
+      args:
+      - "/usr/sbin/sshd -p {{ hvd_ssh_port }}; sleep {{ 3600 * 24 * 7 * 52 * 3}}"
+{% endif %}
+{# endif j == 0 #}
+{% endfor %}
+{# --- endfor j --- #}

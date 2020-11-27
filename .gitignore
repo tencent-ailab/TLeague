@@ -1,0 +1,17 @@
+.idea
+TLeague.egg-info/
+__pycache__
+*.pyc
+.DS_Store
+tleague/sandbox/checkpoints/
+_vizdoom
+
+# output log, results, etc.
+*.pgn
+*.nfg
+*.log
+*_log
+*.ini
+*.yml
+*.yaml
+tmp*

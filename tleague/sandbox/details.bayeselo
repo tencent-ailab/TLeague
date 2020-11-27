@@ -1,0 +1,8 @@
+readpgn tmp.pgn
+elo
+mm
+ratings >tmp.ratings
+details >tmp.details
+
+# details format:
+# number_of_games (number_of_wins : number_of_draw_or_loses) opponet_name

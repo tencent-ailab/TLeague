@@ -1,0 +1,88 @@
+{# start tensorboards offline for the saved log dir #}
+{% set session = "im1223a-mv_logbak" %}
+{% set image = "tensorflow/tensorflow:1.13.1-py3" %}
+{% set docker_registry_credential = "" %}
+{% set pvc_name = "pvc-share-full" %}
+{% set tb_tr_port = 7204 %}
+{% set tb_va_port = 7205 %}
+
+
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: tb-{{ session }}
+  labels:
+    tb-name: {{ session }}
+spec:
+  selector:
+    tb-name: {{ session }}
+  ports:
+  - port: {{ tb_tr_port }}
+    targetPort: {{ tb_tr_port }}
+    name: tr-port
+    protocol: TCP
+  - port: {{ tb_va_port }}
+    targetPort: {{ tb_va_port }}
+    name: va-port
+    protocol: TCP
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tb-{{ session }}
+  labels:
+    tb-name: {{ session }}
+spec:
+  volumes:
+    - name: data-dir
+      persistentVolumeClaim:
+        claimName: {{ pvc_name }}
+{% if docker_registry_credential %}
+  imagePullSecrets:
+  - name: {{ docker_registry_credential }}
+{% endif %}
+  containers:
+    - name: tr-tb
+      image: {{ image }}
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /root/log_dir
+          name: data-dir
+          subPath: chkpoints_zoo/{{ session }}/training_log_host0/rank0/
+      ports:
+        - containerPort: {{ tb_tr_port }}
+      resources:
+        limits:
+          cpu: 1.5
+          memory: 2.2Gi
+        requests:
+          cpu: 3.0
+          memory: 4.4Gi
+      command:
+      - "tensorboard"
+      args:
+      - "--logdir=/root/log_dir/tb"
+      - "--port={{ tb_tr_port }}"
+    - name: va-tb
+      image: {{ image }}
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /root/log_dir
+          name: data-dir
+          subPath: chkpoints_zoo/{{ session }}/validation_log_host0/rank0/
+      ports:
+        - containerPort: {{ tb_va_port }}
+      resources:
+        limits:
+          cpu: 1.5
+          memory: 2.2Gi
+        requests:
+          cpu: 3.0
+          memory: 4.4Gi
+      command:
+      - "tensorboard"
+      args:
+      - "--logdir=/root/log_dir/tb"
+      - "--port={{ tb_tr_port }}"

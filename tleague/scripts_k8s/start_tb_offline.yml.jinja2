@@ -1,0 +1,68 @@
+{# start tensorboards for each learner group #}
+{% set session = "tr0803b" %}
+{% set n_lrngrp = 5 %}
+{% set image = "tensorflow/tensorflow:1.13.1-py3" %}
+{% set docker_registry_credential = "" %}
+{% set pvc_name = "pvc-share-full" %}
+{% set tb_port = 9000 %}
+
+
+{% for i in range(n_lrngrp) %}
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: tb-{{ session }}-{{ i }}
+  labels:
+    tb-name: {{ session }}
+    tb-ind: "{{ i }}"
+spec:
+  selector:
+    tb-name: {{ session }}
+    tb-ind: "{{ i }}"
+  ports:
+  - port: {{ tb_port }}
+    targetPort: {{ tb_port }}
+    name: web-port
+    protocol: TCP
+  type: LoadBalancer
+---
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tb-{{ session }}-{{ i }}
+  labels:
+    tb-name: {{ session }}
+    tb-ind: "{{ i }}"
+spec:
+  volumes:
+    - name: data-dir
+      persistentVolumeClaim:
+        claimName: {{ pvc_name }}
+{% if docker_registry_credential %}
+  imagePullSecrets:
+  - name: {{ docker_registry_credential }}
+{% endif %}
+  containers:
+    - name: tb
+      image: {{ image }}
+      imagePullPolicy: IfNotPresent
+      volumeMounts:
+        - mountPath: /root/log_dir
+          name: data-dir
+          subPath: chkpoints_zoo/{{ session }}_chkpoints.log.bak/training_log_lrngrp{{ i }}_host0/lrngrp{{ i }}rank0/
+      ports:
+        - containerPort: {{ tb_port }}
+      resources:
+        limits:
+          cpu: 1.2
+          memory: 2.2Gi
+        requests:
+          cpu: 1
+          memory: 2Gi
+      command:
+      - "tensorboard"
+      args:
+      - "--logdir=/root/log_dir/tb"
+      - "--port={{ tb_port }}"
+{% endfor %}

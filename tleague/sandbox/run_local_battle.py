@@ -3,7 +3,7 @@ import importlib
 import joblib
 from absl import app
 from absl import flags
-from tleague.actors.agent import PPOAgent
+from tleague.actors.agent import PGAgent
 from tleague.envs.create_envs import create_env
 
 FLAGS = flags.FLAGS
@@ -32,8 +32,8 @@ def main(_):
     policy_config = getattr(importlib.import_module(config_module), config_name)
   else:
     policy_config = {}
-  agents = [PPOAgent(policy, ob_sp, ac_sp, n_v=FLAGS.n_v, scope_name=name, policy_config=policy_config)
-          for policy, ob_sp, ac_sp, name in
+  agents = [PGAgent(policy, ob_sp, ac_sp, n_v=FLAGS.n_v, scope_name=name, policy_config=policy_config)
+            for policy, ob_sp, ac_sp, name in
             zip(policies,
                 env.observation_space.spaces,
                 env.action_space.spaces,

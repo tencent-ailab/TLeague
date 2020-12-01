@@ -283,9 +283,7 @@ spec:
         - "--n_v={{ n_v }}"
         - "--{% if actor_rwd_shape %}rwd_shape{% else %}norwd_shape{% endif %}"
         - "--{% if actor_distillation %}distillation{% else %}nodistillation{% endif %}"
-        - "--version=v2"
         - "--interface_config={{ interface_config }}"
-        - "--agent=tleague.actors.agent.PPOAgent2"
         - "--replay_dir={{ actor_replay_dir }}"
 {% endfor %}
 {# --- endfor k --- #}

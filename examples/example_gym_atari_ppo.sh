@@ -1,18 +1,18 @@
 #!/bin/bash
-# Example of ViZDoom multi-agent (Death Match) reinforcement learning without Inference Server, running on a single machine.
+# Example of gym Atari single-agent reinforcement learning without Inference Server, running on a single machine.
 # Training from scratch with PPO algorithm, no teacher-student KL regularization (no distillation loss).
 
 role=$1
 # common args
+env=gym_atari_breakout-v4  # {gym_atari_seaquest-v4 | gym_atari_spaceinvaders-v4}
 game_mgr_type=tleague.game_mgr.game_mgrs.SelfPlayGameMgr && \
 game_mgr_config="{
-  'max_n_players': 30}"
+  'max_n_players': 1}"
 mutable_hyperparam_type=ConstantHyperparam
 hyperparam_config_name="{ \
   'learning_rate': 0.0001, \
   'lam': 0.99, \
   'gamma': 0.99, \
-  'reward_weights': [[1, 1, 1.0, 1, 1, 1, 1, 1, 1, 1]], \
 }" && \
 policy=tpolicies.net_zoo.conv_lstm.conv_lstm;
 policy_config="{ \
@@ -53,11 +53,7 @@ learner_config="{ \
   'distill_coef': 0.0, \
   'ent_coef': 0.001 \
 }" && \
-env=vizdoom_cig2017_track1 && \
-env_config="{ \
-  'num_players': 4, \
-  'num_bots': 0, \
-}" && \
+env_config="{}" && \
 interface_config="{}"
 
 echo "Running as ${role}"
@@ -102,7 +98,7 @@ python3 -m tleague.bin.run_pg_learner \
   --rm_size=2 \
   --pub_interval=5 \
   --log_interval=4 \
-  --total_timesteps=2000000 \
+  --total_timesteps=200000000 \
   --burn_in_timesteps=12 \
   --env="${env}" \
   --policy="${policy}" \

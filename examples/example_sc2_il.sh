@@ -96,7 +96,6 @@ then
 python3 -m tleague.bin.run_replay_actor \
   --model_pool_addrs=localhost:10003:10004 \
   --learner_addr=localhost:30003:30004 \
-  --agent=tleague.actors.agent.PPOAgent2 \
   --replay_converter="${replay_converter}" \
   --converter_config="${converter_config}" \
   --replay_dir="${replay_dir}" \

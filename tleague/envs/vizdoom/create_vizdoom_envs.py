@@ -21,13 +21,16 @@ def _create_cig2107_track1_env(env_config, inter_config):
                      else env_config['episode_timeout'])
   is_window_visible = (False if 'is_window_visible' not in env_config
                        else env_config['is_window_visible'])
+  train_mode = ('frag' if 'train_mode' not in env_config
+                else env_config['train_mode'])  # {'frag' | 'navi'}
   env = VizdoomMPEnv(
     config_path=path.join(path.dirname(arena.__file__),
                           'utils/vizdoom/_scenarios/cig.cfg'),
     num_players=num_players,
     num_bots=num_bots,
     episode_timeout=episode_timeout,
-    is_window_visible=is_window_visible
+    is_window_visible=is_window_visible,
+    train_mode=train_mode
   )
   env = VizdoomVecRwd(env)
 

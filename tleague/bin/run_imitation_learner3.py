@@ -51,6 +51,8 @@ flags.DEFINE_integer("val_generator_worker_num", 2,
 flags.DEFINE_boolean("enable_validation", True, "Should enable validation.")
 flags.DEFINE_boolean("repeat_training_task", False,
                      "Whether repeatedly sending training task.")
+flags.DEFINE_string("post_process_data", None,
+                    "post process of (X, A), drop useless mask in SC2.")
 flags.DEFINE_string("replay_converter",
                     "timitate.lib5.pb2all_converter.PB2AllConverter",
                     "replay converter used.")
@@ -94,6 +96,10 @@ def main(_):
   policy = import_module_or_data(FLAGS.policy)
   policy_config = read_config_dict(FLAGS.policy_config)
 
+  post_process_data = None
+  if FLAGS.post_process_data is not None:
+    post_process_data = import_module_or_data(FLAGS.post_process_data)
+
   learner = ImitationLearner3(
     ports=learner_ports,
     gpu_id=gpu_id,
@@ -125,6 +131,7 @@ def main(_):
     use_mixed_precision=FLAGS.use_mixed_precision,
     use_sparse_as_dense=FLAGS.use_sparse_as_dense,
     enable_validation=FLAGS.enable_validation,
+    post_process_data=post_process_data
   )
   learner.run()
 

@@ -46,6 +46,8 @@ flags.DEFINE_string("policy", "tpolicies.ppo.policies.DeepMultiHeadMlpPolicy",
                     "policy used")
 flags.DEFINE_multi_string("policy_config", ["{}"], "config used for policy")
 flags.DEFINE_multi_string("infserver_config", ["{}"], "config used for infserver")
+flags.DEFINE_multi_string("post_process_data", [""],
+                          "post process of (X, A), drop useless mask in SC2.")
 flags.DEFINE_boolean("hvd_run", False, "whether to use horovod")
 
 
@@ -68,6 +70,8 @@ def main(_):
   infserver_config = read_config_dict(
     FLAGS.infserver_config[index % len(FLAGS.infserver_config)]
   )
+  post_process_data = FLAGS.post_process_data[
+                        index % len(FLAGS.post_process_data)] or None
   if FLAGS.is_rl:
     env_config = read_config_dict(FLAGS.env_config)
     interface_config = read_config_dict(FLAGS.interface_config)
@@ -79,6 +83,9 @@ def main(_):
     ob_space, ac_space = replay_converter.space.spaces
     if 'model_key' not in infserver_config:
       infserver_config['model_key'] = 'IL-model'
+  if post_process_data is not None:
+    post_process_data = import_module_or_data(post_process_data)
+    ob_space, ac_space = post_process_data(ob_space, ac_space)
   nc = policy.net_config_cls(ob_space, ac_space, **policy_config)
   ds = InfData(ob_space, ac_space, nc.use_self_fed_heads, nc.use_lstm,
                nc.hs_len)

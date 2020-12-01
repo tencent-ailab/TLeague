@@ -62,6 +62,8 @@ flags.DEFINE_string("interface_config", "",
 flags.DEFINE_string("policy", "tpolicies.ppo.policies.DeepMultiHeadMlpPolicy",
                     "policy used")
 flags.DEFINE_string("policy_config", "{}", "config used for policy")
+flags.DEFINE_string("post_process_data", None,
+                    "post process of (X, A), drop useless mask in SC2.")
 flags.DEFINE_boolean("rwd_shape", False, "do reward shape in learner")
 flags.DEFINE_string("learner_config",
                     "tleague.learners.ppo_configs.PPO_Config_v0",
@@ -88,6 +90,9 @@ def main(_):
   env_config = read_config_dict(FLAGS.env_config)
   interface_config = read_config_dict(FLAGS.interface_config)
   ob_space, ac_space = env_space(FLAGS.env, env_config, interface_config)
+  if FLAGS.post_process_data is not None:
+    post_process_data = import_module_or_data(FLAGS.post_process_data)
+    ob_space, ac_space = post_process_data(ob_space, ac_space)
   policy = import_module_or_data(FLAGS.policy)
   policy_config = read_config_dict(FLAGS.policy_config)
   learner_config = read_config_dict(FLAGS.learner_config)

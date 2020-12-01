@@ -36,11 +36,11 @@ flags.DEFINE_string("interface_config", "",
 flags.DEFINE_string("policy", "tpolicies.ppo.policies.DeepMultiHeadMlpPolicy",
                     "policy used")
 flags.DEFINE_string("policy_config", "", "config used for policy")
-flags.DEFINE_string("agent", "tleague.actors.agent.PGAgent", "agent used.")
-flags.DEFINE_string("version", "v1", "v1 for tuple, v2 for tuple/dict")
 flags.DEFINE_string("type", "PPO", "PPO|PPO2|Vtrace actor type")
 flags.DEFINE_string("self_infserver_addr", "", "infserver_addr self_agent used.")
 flags.DEFINE_string("distill_infserver_addr", "", "infserver_addr distill_agent used.")
+flags.DEFINE_string("post_process_data", None,
+                    "post process of (X, A), drop useless mask in SC2.")
 flags.DEFINE_boolean("compress", True, "whether data is compressed for infserver")
 flags.DEFINE_boolean("rwd_shape", True, "do reward shape in actor")
 flags.DEFINE_boolean("distillation", False, "use distillation policy")
@@ -70,7 +70,9 @@ def main(_):
                    inter_config=interface_config)
   policy = import_module_or_data(FLAGS.policy)
   policy_config = read_config_dict(FLAGS.policy_config)
-  agent = import_module_or_data(FLAGS.agent)
+  post_process_data = None
+  if FLAGS.post_process_data is not None:
+    post_process_data = import_module_or_data(FLAGS.post_process_data)
   if FLAGS.type == 'PPO':
     Actor = PPOActor
   elif FLAGS.type == 'PPO2':
@@ -90,11 +92,10 @@ def main(_):
                 rwd_shape=FLAGS.rwd_shape,
                 distillation=FLAGS.distillation,
                 replay_dir=FLAGS.replay_dir,
-                agent_cls=agent,
-                version=FLAGS.version,
                 compress=FLAGS.compress,
                 self_infserver_addr=FLAGS.self_infserver_addr or None,
-                distill_infserver_addr=FLAGS.distill_infserver_addr or None)
+                distill_infserver_addr=FLAGS.distill_infserver_addr or None,
+                post_process_data=post_process_data)
 
   n_failures = 0
   while True:

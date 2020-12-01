@@ -9,7 +9,7 @@ from threading import Thread
 import numpy as np
 
 from tleague.utils import run_parallel
-from tleague.actors.agent import PPOAgent, PGAgentGPU
+from tleague.actors.agent import PGAgent
 from tleague.actors.base_actor import BaseActor
 from tleague.utils import logger
 from tleague.utils.tl_types import is_inherit
@@ -17,12 +17,9 @@ from tleague.utils.data_structure import PGData, InfData
 
 
 def _get_oppo_names(env):
-  """ return list of opponent names as [oppo, oppo1, oppo2,...] """
+  """ return list of opponent names as [oppo_0, oppo_1, oppo_2,...] """
   n_players = len(env.action_space.spaces)
-  assert n_players > 1, "only one agent, no opponent at all!"
-  names = ['oppo']
-  if n_players > 2:
-    names += ['oppo{}'.format(i + 1) for i in range(n_players - 2)]
+  names = ['oppo_{}'.format(i) for i in range(n_players - 1)]
   return names
 
 
@@ -41,8 +38,8 @@ class PGActor(BaseActor):
                policy_config=None, learner_addr=None, unroll_length=32,
                update_model_freq=32, n_v=1, verbose=0, rwd_shape=True,
                log_interval_steps=51, distillation=False, replay_dir=None,
-               agent_cls=None, version='v1', self_infserver_addr=None,
-               distill_infserver_addr=None, compress=True, use_oppo_obs=False,
+               self_infserver_addr=None, distill_infserver_addr=None,
+               compress=True, use_oppo_obs=False, post_process_data=None,
                data_type=PGData, **kwargs):
     super(PGActor, self).__init__(league_mgr_addr,
                                   model_pool_addrs,
@@ -54,7 +51,6 @@ class PGActor(BaseActor):
     # reset for getting ob/act space later in __init__,
     # empty inter_kwargs is okay
     self.n_agents = _get_n_players(env)
-    assert self.n_agents >= 2
     self.env.reset(inter_kwargs=[{} for i in range(self.n_agents)])
     self._learning_agent_id = 0  # require agents[0] be the learning agent
     self._oppo_agent_id = 1  # require agents[1, 2, ...] be the opponents
@@ -74,6 +70,7 @@ class PGActor(BaseActor):
     self.should_log_info = True  # TODO(pengsun): make it an argument
     self.rnn = (False if 'use_lstm' not in policy_config
                 else policy_config['use_lstm'])
+    self._post_process_data = post_process_data
     self.use_oppo_obs = use_oppo_obs
     if self.use_oppo_obs:
       assert self.n_agents == 2, 'use_oppo_obs=True only supports n_agents==2'
@@ -83,26 +80,21 @@ class PGActor(BaseActor):
     policy_config['use_loss_type'] = 'none'
     policy_config['use_self_fed_heads'] = True
     policy_config['batch_size'] = 1
-    agent_cls = agent_cls or PPOAgent
     policy_config['use_value_head'] = True
 
     # Create self agent
-    if self_infserver_addr is None:
-      self_agt = agent_cls(policy, ob_space, ac_space, n_v=n_v,
-        scope_name="self", policy_config=policy_config)
-    else:
-      nc = policy.net_config_cls(ob_space, ac_space, **policy_config)
-      ds = InfData(ob_space, ac_space, policy_config['use_self_fed_heads'],
-                   self.rnn, nc.hs_len)
-      self_agt = PGAgentGPU(self_infserver_addr, ds, nc.hs_len, compress)
+    self_agt = PGAgent(policy, ob_space, ac_space, n_v=n_v, scope_name="self",
+                       policy_config=policy_config, use_gpu_id=-1,
+                       infserver_addr=self_infserver_addr, compress=compress)
+
     # Create other agents; Opponent does not use value heads.
     # NOTE: After removing opponent's value heads, update_model for opponent
     # in actor updates with a full net with more parameters, so the parameters
     # of value heads should be located after the policy (as it is currently)
     policy_config['use_value_head'] = False
     self.agents = [self_agt] + [
-      agent_cls(policy, ob_space, ac_space, n_v=n_v, scope_name=scope_name,
-                policy_config=policy_config)
+      PGAgent(policy, ob_space, ac_space, n_v=n_v, scope_name=scope_name,
+              policy_config=policy_config, use_gpu_id=-1, infserver_addr=None)
       for ob_space, ac_space, scope_name in zip(
         self.env.observation_space.spaces[self._oppo_agent_id:],
         self.env.action_space.spaces[self._oppo_agent_id:],
@@ -112,7 +104,7 @@ class PGActor(BaseActor):
 
     # the data structure
     self.ds = data_type(ob_space, ac_space, n_v, use_lstm=self.rnn, hs_len=1,
-                        distillation=distillation, version=version)
+                        distillation=distillation)
     if self._enable_push:
       # Start a data-sending Thread that watches the _data_queue, see also the
       # self._push_data_to_learner() method
@@ -124,20 +116,14 @@ class PGActor(BaseActor):
 
     # distillation (i.e., the teacher-student KL regularization)
     self.distillation = distillation and self._enable_push
+    if self._post_process_data:
+      ob_space, ac_space = self._post_process_data(ob_space, ac_space)
     if self.distillation:
       policy_config['use_self_fed_heads'] = False
-      if distill_infserver_addr is None:
-        self.distill_agent = agent_cls(
-          policy, ob_space, ac_space,
-          n_v=n_v, scope_name='distill',
-          policy_config=policy_config
-        )
-      else:
-        nc = policy.net_config_cls(ob_space, ac_space, **policy_config)
-        ds = InfData(ob_space, ac_space, policy_config['use_self_fed_heads'],
-                     self.rnn, nc.hs_len)
-        self.distill_agent = PGAgentGPU(distill_infserver_addr, ds, nc.hs_len,
-                                        compress)
+      self.distill_agent = \
+        PGAgent(policy, ob_space, ac_space, n_v=n_v, scope_name="distill",
+                policy_config=policy_config, use_gpu_id=-1,
+                infserver_addr=distill_infserver_addr, compress=compress)
     self._replay_dir = replay_dir
     self._parallel = run_parallel.RunParallel()
 
@@ -155,13 +141,15 @@ class PGActor(BaseActor):
 
     # passing me and oppo hyperparams to the arena interface
     assert self.task.hyperparam is not None
-    logger.log('pulling oppo hyperparam of model key {}'.format(
-      self.task.model_key2))
-    oppo_hyperparam = self._model_pool_apis.pull_attr(attr='hyperparam',
-                                                      key=self.task.model_key2)
-    logger.log('Done pulling oppo hyperparam')
-    oppo_inter_kwargs =  ({} if oppo_hyperparam is None
-                          else oppo_hyperparam.__dict__)
+    oppo_hyperparam = None
+    if self.n_agents > 1:
+      logger.log('pulling oppo hyperparam of model key {}'.format(
+        self.task.model_key2))
+      oppo_hyperparam = self._model_pool_apis.pull_attr(attr='hyperparam',
+                                                        key=self.task.model_key2)
+      logger.log('Done pulling oppo hyperparam')
+    oppo_inter_kwargs = ({} if oppo_hyperparam is None
+                         else oppo_hyperparam.__dict__)
     inter_kwargs = ([self.task.hyperparam.__dict__]
                     + [oppo_inter_kwargs] * (self.n_agents - 1))
 
@@ -181,10 +169,8 @@ class PGActor(BaseActor):
       predictions = self._parallel.run((self._agent_pred, ob, i)
                                        for i, ob in enumerate(obs))
       me_prediction = predictions[me_id]
-      me_action, extra_vars = me_prediction[me_id], me_prediction[oppo_id:]
-      # predicted actions for each agent
-      actions = [me_action] + [other_action
-                               for other_action in predictions[oppo_id:]]
+      me_action, extra_vars = me_prediction[0], me_prediction[1:]
+      actions = [me_action] + predictions[oppo_id:]
       # book-keep obs in previous step
       last_obs = obs
 
@@ -207,7 +193,16 @@ class PGActor(BaseActor):
             extra_vars += (self.agents[self._oppo_agent_id]._last_state,)
           else:
             extra_vars.append(self.agents[self._oppo_agent_id]._last_state)
-        data_tuple = (last_obs, tuple(actions), rwd_to_push, info, done, extra_vars)
+        if done:
+          outcome = self.log_outcome(info, reward)
+          if not isinstance(info, dict):
+            info = {}
+          info['outcome'] = outcome
+        if self._post_process_data:
+          data_tuple = (*zip(*[self._post_process_data(*x) for x in zip(last_obs, actions)]),
+                        rwd_to_push, info, done, extra_vars)
+        else:
+          data_tuple = (last_obs, tuple(actions), rwd_to_push, info, done, extra_vars)
         self._data_queue.put(data_tuple)
         logger.log('successfully put one tuple.', level=logger.DEBUG)
 
@@ -223,7 +218,7 @@ class PGActor(BaseActor):
         if self._changed_task:
           return None, info
         else:
-          return self.log_outcome(info), info
+          return info['outcome'], info
 
       if self._update_model_freq and self._steps % self._update_model_freq == 0:
         # time to update the model for each agent
@@ -280,7 +275,8 @@ class PGActor(BaseActor):
       me_id = self._learning_agent_id  # short name
       self.agents[me_id].load_model(model1.model)
       self.self_model = model1
-    if self._should_update_model(self.oppo_model, task.model_key2):
+    if self.n_agents > 1 and self._should_update_model(self.oppo_model,
+                                                       task.model_key2):
       model2 = self._model_pool_apis.pull_model(task.model_key2)
       oppo_id = self._oppo_agent_id  # short name
       for agt in self.agents[oppo_id:]:
@@ -334,14 +330,30 @@ class PGActor(BaseActor):
       'episode_steps': self._steps,
     })
     if self.should_log_info:  # log additional info fields
-      logger.logkvs(info)
+      if isinstance(info, dict):
+        logger.logkvs(info)
+      else:
+        logger.log(info)
     logger.dumpkvs()
 
-  def log_outcome(self, info):
-    if 'outcome' not in info:
-      me_outcome = -95678
-      logger.log("info['outcome'] not available",
-                 'return an arbitrary value', me_outcome, level=logger.WARN)
+  def log_outcome(self, info, rwd):
+    if not isinstance(info, dict) or 'outcome' not in info:
+      logger.log("info['outcome'] not available, get it from reward",
+                 level=logger.WARN)
+      if self.n_agents > 1:
+        rwd_me = rwd[self._learning_agent_id]
+        rwd_oppo = rwd[self._oppo_agent_id:]
+        try:
+          logger.log(f"reward[0] is vector of {len(rwd_me)},"
+                     f" get first channel as outcome", level=logger.WARN)
+          win_num = sum([r[0] < rwd_me[0] for r in rwd_oppo])
+          lose_num = sum([r[0] > rwd_me[0] for r in rwd_oppo])
+        except:
+          win_num = sum([r < rwd_me for r in rwd_oppo])
+          lose_num = sum([r > rwd_me for r in rwd_oppo])
+        me_outcome = 1 if win_num > lose_num else -1 if win_num < lose_num else 0
+      else:
+        me_outcome = None
     else:
       me_outcome = info['outcome'][self._learning_agent_id]
     return me_outcome

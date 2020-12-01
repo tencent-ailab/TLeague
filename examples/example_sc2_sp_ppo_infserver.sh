@@ -304,7 +304,6 @@ python3 -m tleague.bin.run_pg_actor \
   --n_v=6 \
   --norwd_shape \
   --distillation \
-  --version=v2 \
   --verbose=0 \
   --type=PPO
 fi

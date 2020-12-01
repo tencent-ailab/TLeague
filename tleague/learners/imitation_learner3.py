@@ -56,7 +56,8 @@ class ImitationLearner3(object):
                repeat_training_task=False, unroll_length=32,
                pub_interval=50, max_clip_grad_norm=1,
                after_loading_init_scope=None, use_mixed_precision=False,
-               use_sparse_as_dense=False, enable_validation=True):
+               use_sparse_as_dense=False, enable_validation=True,
+               post_process_data=None):
     assert len(ports) == 2
     self.rank = 0 if not has_hvd else hvd.rank()
     self.model_key = 'IL-model'
@@ -85,6 +86,8 @@ class ImitationLearner3(object):
     train_replay_filelist, val_replay_filelist = _get_local_replays(replay_filelist)
     replay_converter = replay_converter_type(**converter_config)
     ob_space, ac_space = replay_converter.space.spaces
+    if post_process_data is not None:
+      ob_space, ac_space = post_process_data(ob_space, ac_space)
     self.data_pool = ImDataServer(
       ports=ports,
       train_replay_filelist=train_replay_filelist,

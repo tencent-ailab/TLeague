@@ -36,7 +36,6 @@ python3 -m tleague.scripts.run_ppo_actor \
     --n_v 1 \
     --rwd_shape \
     --nodistillation \
-    --version v2 \
     --agent tleague.actors.agent.PPOAgent2 
 
 # learner

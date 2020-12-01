@@ -21,7 +21,6 @@ python3 -m tleague.scripts.run_ppo_actor \
  --n_v 5 \
  --rwd_shape \
  --distillation \
- --version=v2 \
  --interface_config "{'zstat_data_src': '/Users/pengsun/code/sc2_rl/TLeague/tleague/sandbox/tmp_rp1429-mv-zstat-tmp-selected2', 'mmr': 7000, 'max_bo_count': 50}" \
  --agent tleague.actors.agent.PPOAgent2 \
  --verbose 11

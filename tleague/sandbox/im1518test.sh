@@ -7,7 +7,6 @@ python3 -m tleague.scripts.run_hvd_imitation_all \
   --python_bin python3 \
   --prun horovodrun \
   --replay_converter=timitate.lib5.pb2all_converter.PB2AllConverter \
-  --agent=tleague.actors.agent.PPOAgent2 \
   --converter_config="{
     'zstat_data_src': '/root/replay_ds/rp1517-mv-zstat',
     'input_map_size': (128, 128),

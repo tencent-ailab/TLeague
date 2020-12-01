@@ -13,15 +13,15 @@ from pysc2 import run_configs
 from pysc2.lib import point
 from s2clientprotocol import sc2api_pb2 as sc_pb
 from timitate.utils.utils import map_name_transform
-from timitate.utils.const import MAP_ORI_SIZE_DICT, MAP_PLAYABLE_SIZE_DICT, MAP_PLAYABLE_AREA_DICT
+from timitate.utils.const import MAP_ORI_SIZE_DICT, MAP_PLAYABLE_SIZE_DICT
 from timitate.utils import pb2pb
 
 from tleague.utils import logger
 from tleague.utils.io import TensorZipper
-from tleague.utils.data_structure import ILData, InfData
+from tleague.utils.data_structure import ILData
 from tleague.learners.learner_apis import ImLearnerAPIs
 from tleague.model_pools.model_pool_apis import ModelPoolAPIs
-from tleague.actors.agent import PPOAgent, PGAgentGPU
+from tleague.actors.agent import PGAgent
 
 
 def _get_interface(map_name, game_core_config={}):
@@ -149,7 +149,8 @@ class ReplayActor(object):
                n_v=1, log_interval=50, step_mul=8, SC2_bin_root='/root/',
                game_version='3.16.1', unroll_length=32, update_model_freq=32,
                converter_config=None, agent_cls=None, infserver_addr=None,
-               compress=True, da_rate=-1., unk_mmr_dft_to=4000):
+               compress=True, da_rate=-1., unk_mmr_dft_to=4000,
+               post_process_data=None):
     self._data_pool_apis = ImLearnerAPIs(learner_addr)
     self._SC2_bin_root = SC2_bin_root
     self._log_interval = log_interval
@@ -171,24 +172,24 @@ class ReplayActor(object):
     self._da_rate = da_rate
     self._unk_mmr_dft_to = unk_mmr_dft_to
     self._system = platform.system()
+    self._post_process_data = post_process_data
     ob_space, ac_space = self._replay_converter.space
+    if self._post_process_data:
+      ob_space, ac_space = self._post_process_data(ob_space, ac_space)
     if self._use_policy:
       self.model = None
       policy_config = {} if policy_config is None else policy_config
-      agent_cls = agent_cls or PPOAgent
+      agent_cls = agent_cls or PGAgent
       policy_config['batch_size'] = 1
       policy_config['rollout_len'] = 1
       policy_config['use_loss_type'] = 'none'
       self.infserver_addr = infserver_addr
+      self.agent = agent_cls(policy, ob_space, ac_space, n_v=n_v,
+                             scope_name="self", policy_config=policy_config,
+                             use_gpu_id=-1, infserver_addr=infserver_addr,
+                             compress=compress)
       if infserver_addr is None:
         self._model_pool_apis = ModelPoolAPIs(model_pool_addrs)
-        self.agent = agent_cls(policy, ob_space, ac_space, n_v=n_v,
-                               scope_name='self', policy_config=policy_config)
-      else:
-        nc = policy.net_config_cls(ob_space, ac_space, **policy_config)
-        ds = InfData(ob_space, ac_space, policy_config['use_self_fed_heads'],
-                     nc.use_lstm, nc.hs_len)
-        self.agent = PGAgentGPU(infserver_addr, ds, nc.hs_len, compress)
     self.ds = ILData(ob_space, ac_space, self._use_policy, 1) # hs_len does not matter
 
   def run(self):
@@ -222,12 +223,16 @@ class ReplayActor(object):
         self.agent.reset()
         self._update_agent_model()
       for frame in extractor.extract():
+        if self._post_process_data:
+          obs, act = self._post_process_data(*frame[0])
+        else:
+          obs, act = frame[0]
         if self._use_policy:
-          data = (*frame[0], self.agent.state, np.array(first_frame, np.bool))
-          self.agent.update_state(frame[0][0])
+          data = (obs, act, self.agent.state, np.array(first_frame, np.bool))
+          self.agent.update_state(obs)
           first_frame = False
         else:
-          data = frame[0]
+          data = (obs, act)
         data = self.ds.flatten(self.ds.structure(data))
         if self._data_queue.full():
           logger.log("Actor's queue is full.", level=logger.WARN)

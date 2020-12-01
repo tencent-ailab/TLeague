@@ -39,7 +39,7 @@
 {% set unroll_length = 256 %}
 {% set rollout_length = 16 %}
 {# model pool#}
-{% set n_model_pools = 20 %}
+{% set n_model_pools = 2 %}
 {% set model_pool_port1 = 10003 %}
 {% set model_pool_port2 = 10004 %}
 {% set model_pool_verbose = 0 %}
@@ -95,7 +95,7 @@
 {% set league_mgr_verbose = 0 %}
 {# learners #}
 {% set n_lrn_groups = 3 %}
-{% set n_hosts_per_lrn_group = 10 %}
+{% set n_hosts_per_lrn_group = 2 %}
 {% set n_gpus_per_host = 8 %}
 {% set hvd_ssh_port = 9527 %}
 {% set lrn_port_base = 30003 %}
@@ -529,9 +529,7 @@ spec:
         - "--n_v={{ n_v }}"
         - "--{% if actor_rwd_shape %}rwd_shape{% else %}norwd_shape{% endif %}"
         - "--{% if actor_distillation %}distillation{% else %}nodistillation{% endif %}"
-        - "--version=v2"
         - "--interface_config={{ lrngrp_interface_config[i] }}"
-        - "--agent=tleague.actors.agent.PPOAgent2"
         - "--replay_dir={{ actor_replay_dir }}"
 {% endfor %}
 {# --- endfor k --- #}

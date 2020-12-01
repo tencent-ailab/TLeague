@@ -315,30 +315,10 @@ def make_sc2_base_env(n_players=2, step_mul=8, version='4.7.0',
 
 def make_sc2full_v8_interface(zstat_data_src='',
                               mmr=3500,
-                              max_bo_count=50,
-                              max_bobt_count=50,
                               dict_space=False,
-                              verbose=0,
                               zstat_presort_order_name=None,
-                              correct_pos_radius=2.0,
-                              correct_building_pos=False,
                               zmaker_version='v4',
-                              inj_larv_rule=False,
-                              ban_zb_rule=False,
-                              ban_rr_rule=False,
-                              ban_hydra_rule=False,
-                              rr_food_cap=40,
-                              zb_food_cap=10,
-                              hydra_food_cap=10,
-                              mof_lair_rule=False,
-                              hydra_spire_rule=False,
-                              overseer_rule=False,
-                              expl_map_rule=False,
-                              baneling_rule=False,
-                              add_cargo_to_units=False,
                               output_map_size=(128, 128),
-                              crop_to_playable_area=False,
-                              ab_dropout_list=None,
                               **kwargs):
   from arena.interfaces.sc2full_formal.obs_int import FullObsIntV7
   from arena.interfaces.sc2full_formal.act_int import FullActIntV6, NoopActIntV4
@@ -349,35 +329,16 @@ def make_sc2full_v8_interface(zstat_data_src='',
   # this obs inter requires game core 4.10.0
   inter = FullObsIntV7(inter, zstat_data_src=zstat_data_src,
                        mmr=mmr,
-                       max_bo_count=max_bo_count,
-                       max_bobt_count=max_bobt_count,
                        dict_space=dict_space,
                        zstat_presort_order_name=zstat_presort_order_name,
                        game_version='4.10.0',
                        zmaker_version=zmaker_version,
-                       inj_larv_rule=inj_larv_rule,
-                       ban_zb_rule=ban_zb_rule,
-                       ban_rr_rule=ban_rr_rule,
-                       ban_hydra_rule=ban_hydra_rule,
-                       rr_food_cap=rr_food_cap,
-                       zb_food_cap=zb_food_cap,
-                       hydra_food_cap=hydra_food_cap,
-                       mof_lair_rule=mof_lair_rule,
-                       hydra_spire_rule=hydra_spire_rule,
-                       overseer_rule=overseer_rule,
-                       expl_map_rule=expl_map_rule,
-                       baneling_rule=baneling_rule,
-                       add_cargo_to_units=add_cargo_to_units,
                        output_map_resolution=output_map_size,
-                       crop_to_playable_area=crop_to_playable_area,
-                       ab_dropout_list=ab_dropout_list)
+                       **kwargs)
   inter = FullActIntV6(inter, max_noop_num=len(noop_nums),
-                       correct_pos_radius=correct_pos_radius,
-                       correct_building_pos=correct_building_pos,
                        map_resolution=output_map_size,
-                       crop_to_playable_area=crop_to_playable_area,
                        dict_space=dict_space,
-                       verbose=verbose)
+                       **kwargs)
   inter = ActAsObsSC2(inter)
   noop_func = lambda x: x['A_NOOP_NUM'] if dict_space else x[1]
   inter = NoopActIntV4(inter, noop_nums=noop_nums, noop_func=noop_func)
@@ -548,3 +509,13 @@ def sc2_env_space(arena_id, env_config=None, inter_config=None):
     ob_space = env.observation_space.spaces[0]
     env.close()
   return ob_space, ac_space
+
+
+def filter_mask(obs, act):
+  if isinstance(obs, spaces.Dict) and isinstance(act, spaces.Dict):
+    for key in ['MASK_SELECTION', 'MASK_CMD_UNIT', 'MASK_CMD_POS']:
+      obs.spaces[key].shape = obs.spaces[key].shape[1:]
+  elif obs is not None:
+    for key in ['MASK_SELECTION', 'MASK_CMD_UNIT', 'MASK_CMD_POS']:
+      obs[key] = obs[key][act['A_AB']]
+  return obs, act

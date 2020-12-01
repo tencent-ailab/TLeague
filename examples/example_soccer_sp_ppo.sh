@@ -1,5 +1,5 @@
 #!/bin/bash
-# Example of ViZDoom multi-agent (Death Match) reinforcement learning without Inference Server, running on a single machine.
+# Example of soccer multi-agent reinforcement learning without Inference Server, running on a single machine.
 # Training from scratch with PPO algorithm, no teacher-student KL regularization (no distillation loss).
 
 role=$1
@@ -12,9 +12,8 @@ hyperparam_config_name="{ \
   'learning_rate': 0.0001, \
   'lam': 0.99, \
   'gamma': 0.99, \
-  'reward_weights': [[1, 1, 1.0, 1, 1, 1, 1, 1, 1, 1]], \
 }" && \
-policy=tpolicies.net_zoo.conv_lstm.conv_lstm;
+policy=tpolicies.net_zoo.soccer.cont_nn;
 policy_config="{ \
   'use_xla': False, \
   'test': False, \
@@ -22,29 +21,17 @@ policy_config="{ \
   'use_loss_type': 'rl', \
   'use_value_head': True, \
   'n_v': 1, \
-  'use_lstm': True, \
-  'nlstm': 32, \
-  'hs_len': 64, \
-  'lstm_dropout_rate': 0.2, \
-  'lstm_cell_type': 'lstm', \
-  'lstm_layer_norm': True, \
-  'weight_decay': 0.00002, \
+  'use_lstm': False, \
 }" && \
 self_policy_config="{ \
-  'batch_size': 2, \
+  'batch_size': 32, \
   'rollout_len': 1, \
   'use_xla': False, \
   'test': True, \
   'use_loss_type': 'none', \
   'use_value_head': True, \
   'n_v': 1, \
-  'use_lstm': True, \
-  'nlstm': 32, \
-  'hs_len': 64, \
-  'lstm_dropout_rate': 0.2, \
-  'lstm_cell_type': 'lstm', \
-  'lstm_layer_norm': True, \
-  'weight_decay': 0.00002, \
+  'use_lstm': False, \
   'sync_statistics': 'none', \
 }" && \
 learner_config="{ \
@@ -53,11 +40,8 @@ learner_config="{ \
   'distill_coef': 0.0, \
   'ent_coef': 0.001 \
 }" && \
-env=vizdoom_cig2017_track1 && \
-env_config="{ \
-  'num_players': 4, \
-  'num_bots': 0, \
-}" && \
+env=soccer && \
+env_config="{}" && \
 interface_config="{}"
 
 echo "Running as ${role}"
@@ -98,7 +82,7 @@ python3 -m tleague.bin.run_pg_learner \
   --learner_id=lrngrp0 \
   --unroll_length=2 \
   --rollout_length=2 \
-  --batch_size=2 \
+  --batch_size=32 \
   --rm_size=2 \
   --pub_interval=5 \
   --log_interval=4 \
@@ -125,6 +109,7 @@ python3 -m tleague.bin.run_pg_actor \
   --env="${env}" \
   --env_config="${env_config}" \
   --interface_config="${interface_config}" \
+  --agent=tleague.actors.agent.PPOAgent2 \
   --policy="${policy}" \
   --policy_config="${self_policy_config}" \
   --log_interval_steps=3 \

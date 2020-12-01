@@ -1,5 +1,5 @@
 #!/bin/bash
-# Example of Pong-2p multi-agent (Death Match) reinforcement learning without Inference Server, running on a single machine.
+# Example of Pong-2p multi-agent reinforcement learning without Inference Server, running on a single machine.
 # Training from scratch with PPO algorithm, no teacher-student KL regularization (no distillation loss).
 
 role=$1
@@ -121,14 +121,12 @@ python3 -m tleague.bin.run_pg_actor \
   --env="${env}" \
   --env_config="${env_config}" \
   --interface_config="${interface_config}" \
-  --agent=tleague.actors.agent.PPOAgent2 \
   --policy="${policy}" \
   --policy_config="${self_policy_config}" \
   --log_interval_steps=3 \
   --n_v=1 \
   --rwd_shape \
   --nodistillation \
-  --version=v2 \
   --verbose=0 \
   --type=PPO
 fi

@@ -1,60 +1,46 @@
 #!/bin/bash
 # Example of sc2 multi-agent reinforcement learning without Inference Server, running on a single machine.
-# Training from scratch with VTrace algorithm, no teacher-student KL regularization (no distillation loss).
+# Training from scratch with PPO algorithm, no teacher-student KL regularization (no distillation loss).
 
 role=$1
 # common args
-zstat_data_src=/Users/pengsun/code/tmp/replay_ds/rp1706-mv7-mmr6200-victory-selected-174
-#zstat_data_src=/Users/jcxiong/SC2/rp1522-mv-zstat-tmp-selected-2
-game_mgr_type=tleague.game_mgr.game_mgrs.SelfPlayGameMgr && \
-game_mgr_config="{}"  # null for SelfPlayGameMgr
+game_mgr_type=tleague.game_mgr.ae_game_mgrs.AEMatchMakingGameMgr && \
+game_mgr_config="{
+  'lrn_id_list': ['lrngrp0'],
+  'lrn_role_list': ['MA'],
+  'main_agent_pfsp_prob': 0.5,
+  'main_agent_forgotten_prob': 0.15,
+  'main_agent_forgotten_me_winrate_thre': 0.5,
+  'main_agent_forgotten_ma_winrate_thre': 0.7}"  # null for SelfPlayGameMgr
 mutable_hyperparam_type=MutableHyperparam
 hyperparam_config_name="{ \
   'learning_rate': 0.00001, \
   'lam': 0.8, \
   'gamma': 1.0, \
   'burn_in_timesteps': 10, \
-  'reward_weights': [1.0, 1.0, 1.0, 1.5, 1.5, 1.5], \
+  'reward_weights': [1.0, 0.2, 0.2, 0.2, 0.2, 0.1, 0.1, 0.1, 0.1, 0.1, 0.1], \
 }" && \
-policy=tpolicies.net_zoo.mnet_v6.mnet_v6d6;
+policy=tpolicies.net_zoo.pommerman.conv_lstm;
 policy_config="{ \
   'use_xla': False, \
   'test': False, \
-  'rollout_len': 2, \
   'rl': True, \
-  'use_loss_type': 'rl_vtrace', \
+  'use_loss_type': 'rl', \
   'use_value_head': True, \
   'use_self_fed_heads': False, \
   'use_lstm': True, \
-  'nlstm': 384, \
-  'hs_len': 768, \
+  'nlstm': 64, \
+  'hs_len': 128, \
   'lstm_duration': 1, \
   'lstm_dropout_rate': 0.0, \
   'lstm_cell_type': 'lstm', \
   'lstm_layer_norm': True, \
   'weight_decay': 0.00000002, \
-  'arg_scope_type': 'mnet_v5_type_a', \
-  'endpoints_verbosity': 10, \
-  'n_v': 6, \
-  'distillation': False, \
-  'fix_all_embed': False, \
-  'use_base_mask': True, \
-  'zstat_embed_version': 'v3', \
-  'trans_version': 'v4', \
-  'vec_embed_version': 'v3d1', \
-  'embed_for_action_heads': 'lstm', \
-  'use_astar_glu': True, \
-  'use_astar_func_embed': True, \
-  'pos_logits_mode': '1x1', \
-  'pos_n_blk': 2, \
-  'pos_n_skip': 2, \
-  'sync_statistics': 'none', \
-  'temperature': 0.8, \
+  'n_v': 11, \
   'merge_pi': False, \
-  'value_net_version': 'v2', \
 }" && \
 self_policy_config="{ \
-  'batch_size': 2, \
+  'batch_size': 1, \
   'rollout_len': 1, \
   'use_xla': False, \
   'test': True, \
@@ -62,59 +48,34 @@ self_policy_config="{ \
   'use_value_head': True, \
   'use_self_fed_heads': True, \
   'use_lstm': True, \
-  'nlstm': 384, \
-  'hs_len': 768, \
+  'nlstm': 64, \
+  'hs_len': 128, \
   'lstm_duration': 1, \
   'lstm_dropout_rate': 0.0, \
   'lstm_cell_type': 'lstm', \
   'lstm_layer_norm': True, \
   'weight_decay': 0.00000002, \
-  'arg_scope_type': 'mnet_v5_type_a', \
-  'endpoints_verbosity': 10, \
-  'n_v': 6, \
-  'distillation': False, \
-  'fix_all_embed': False, \
-  'use_base_mask': True, \
-  'zstat_embed_version': 'v3', \
-  'trans_version': 'v4', \
-  'vec_embed_version': 'v3d1', \
-  'embed_for_action_heads': 'lstm', \
-  'use_astar_glu': True, \
-  'use_astar_func_embed': True, \
-  'pos_logits_mode': '1x1', \
-  'pos_n_blk': 2, \
-  'pos_n_skip': 2, \
-  'sync_statistics': 'none', \
-  'temperature': 0.8, \
+  'n_v': 11, \
   'merge_pi': False, \
-  'value_net_version': 'v2', \
+}" && \
+self_infserver_config="{ \
+  'outputs': ['a', 'v', 'neglogp'], \
+  'update_model_seconds': 30, \
+  'model_key': '', \
 }" && \
 learner_config="{ \
-  'vf_coef': [5, 0.5, 0.5, 0.5, 0.5, 0.5], \
+  'vf_coef': [10, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0], \
   'max_grad_norm': 1.0, \
   'distill_coef': 0, \
-  'ent_coef': [0.00002, 0.00002, 0.00015, 0.00002, 0.00002, 0.00001], \
-  'ep_loss_coef' : {'upgo_loss': 1} \
+  'ent_coef': [0.01, 0.01] \
 }" && \
-env=sc2full_formal8_dict && \
+env=pommerman_v2_fog && \
 env_config="{ \
-  'use_trt': False, \
-  'skip_noop': True, \
-  'early_term': False, \
-  'astar_rwd_version': 'v3' \
+  'rotate': False, \
+  'centralV': False, \
+  'random_side': True \
 }" && \
-interface_config="{ \
-  'zstat_data_src': '${zstat_data_src}', \
-  'mmr': 7000, \
-  'max_bo_count': 50, \
-  'max_bobt_count': 20, \
-  'add_cargo_to_units': True, \
-  'correct_pos_radius': 3.5, \
-  'correct_building_pos': True, \
-  'crop_to_playable_area': False, \
-  'il_training': False, \
-  'zstat_presort_order_name': '', \
-  'zmaker_version': 'v5' \
+interface_config="{
 }"
 
 echo "Running as ${role}"
@@ -153,12 +114,12 @@ python3 -m tleague.bin.run_pg_learner \
   --model_pool_addrs=localhost:10003:10004 \
   --league_mgr_addr=localhost:20005 \
   --learner_id=lrngrp0 \
-  --unroll_length=2 \
-  --rollout_length=2 \
-  --batch_size=4 \
-  --rm_size=2 \
-  --pub_interval=5 \
-  --log_interval=4 \
+  --unroll_length=32 \
+  --rollout_length=8 \
+  --batch_size=32 \
+  --rm_size=64 \
+  --pub_interval=100 \
+  --log_interval=100 \
   --total_timesteps=2000000 \
   --burn_in_timesteps=12 \
   --env="${env}" \
@@ -167,7 +128,23 @@ python3 -m tleague.bin.run_pg_learner \
   --batch_worker_num=1 \
   --rwd_shape \
   --learner_config="${learner_config}" \
-  --type=Vtrace
+  --type=PPO
+fi
+
+# self inference server
+if [ $role == inf_server ]
+then
+python3 -m tleague.bin.run_inference_server \
+  --port=30002 \
+  --model_pool_addrs=localhost:10003:10004 \
+  --league_mgr_addr=localhost:20005 \
+  --learner_id="lrngrp0" \
+  --env="${env}" \
+  --is_rl \
+  --policy="${policy}" \
+  --policy_config="${self_policy_config}" \
+  --infserver_config="${self_infserver_config}" \
+  --batch_worker_num=1
 fi
 
 # actor
@@ -177,8 +154,9 @@ python3 -m tleague.bin.run_pg_actor \
   --model_pool_addrs=localhost:10003:10004 \
   --league_mgr_addr=localhost:20005 \
   --learner_addr=localhost:30003:30004 \
-  --unroll_length=2 \
-  --update_model_freq=32 \
+  --self_infserver_addr=localhost:30002 \
+  --unroll_length=32 \
+  --update_model_freq=128 \
   --env="${env}" \
   --env_config="${env_config}" \
   --interface_config="${interface_config}" \
@@ -186,9 +164,9 @@ python3 -m tleague.bin.run_pg_actor \
   --policy="${policy}" \
   --policy_config="${self_policy_config}" \
   --log_interval_steps=3 \
-  --n_v=6 \
+  --n_v=11 \
   --norwd_shape \
   --nodistillation \
   --verbose=0 \
-  --type=Vtrace
+  --type=PPO
 fi

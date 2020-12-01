@@ -27,8 +27,10 @@ flags.DEFINE_string("game_version", '4.7.1', "Game core version.")
 # training stuff
 flags.DEFINE_string("policy", None, "policy used")
 flags.DEFINE_string("policy_config", "", "config used for policy")
-flags.DEFINE_string("agent", "tleague.actors.agent.PPOAgent", "agent used.")
+flags.DEFINE_string("agent", "tleague.actors.agent.PGAgent", "agent used.")
 flags.DEFINE_string("infserver_addr", "", "infserver_addr agent used.")
+flags.DEFINE_string("post_process_data", None,
+                    "post process of (X, A), drop useless mask in SC2.")
 flags.DEFINE_boolean("compress", True, "whether data is compressed for infserver")
 flags.DEFINE_integer("update_model_freq", 32, "update model every n steps")
 flags.DEFINE_integer("n_v", 1, "value length")
@@ -60,6 +62,9 @@ def main(_):
   policy_config = None
   model_pool_addrs = None
   agent = None
+  post_process_data = None
+  if FLAGS.post_process_data is not None:
+    post_process_data = import_module_or_data(FLAGS.post_process_data)
   if FLAGS.policy:
     policy = import_module_or_data(FLAGS.policy)
     policy_config = read_config_dict(FLAGS.policy_config)
@@ -83,6 +88,7 @@ def main(_):
                       agent_cls=agent,
                       infserver_addr=FLAGS.infserver_addr or None,
                       compress=FLAGS.compress,
+                      post_process_data=post_process_data,
                       da_rate=FLAGS.data_augment_rate,
                       unk_mmr_dft_to=FLAGS.unk_mmr_dft_to)
 

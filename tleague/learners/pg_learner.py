@@ -77,8 +77,7 @@ class PGLearner(BaseLearner):
 
     # Prepare dataset
     ds = data_type(ob_space, ac_space, self.n_v, use_lstm=self.rnn,
-                   hs_len=self.hs_len, distillation=self.distillation,
-                   version='v2')
+                   hs_len=self.hs_len, distillation=self.distillation)
     self._data_server = DataServer(self._pull_data, rm_size,
                                    unroll_length, batch_size, ds,
                                    gpu_id_list=(0,),
@@ -160,7 +159,10 @@ class PGLearner(BaseLearner):
     grads_and_vars = self.trainer.compute_gradients(loss, self.params)
     grads_and_vars_vf = self.burn_in_trainer.compute_gradients(vf_loss,
                                                                self.params_vf)
-    clip_vars = model.vars.lstm_vars
+    if 'use_lstm' in policy_config and policy_config['use_lstm']:                                                          
+      clip_vars = model.vars.lstm_vars
+    else:
+      clip_vars = []
     grads_and_vars, self.clip_grad_norm, self.nonclip_grad_norm = self.clip_grads_vars(
       grads_and_vars, clip_vars, max_grad_norm)
     grads_and_vars_vf, self.clip_grad_norm_vf, self.nonclip_grad_norm_vf = self.clip_grads_vars(

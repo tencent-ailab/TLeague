@@ -65,22 +65,14 @@ class ILData(DataStructure):
 
 class PGData(DataStructure):
   def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
-               distillation=False, version='v1', use_oppo_data=False):
+               distillation=False, use_oppo_data=False):
     _fields = ['X', 'A', 'neglogp']
     shape_dtype = lambda x: (x.shape, x.dtype)
     logit_shape_dtype = lambda x: (make_pdtype(x).param_shape(), np.float32)
-    if version == 'v1': # neglogp/logits is one long vector
-      neglogp_shape_dtype = ([len(ac_space.spaces)], np.float32)
-      neglogp_templates = None
-      logits_shape_dtype = (logit_shape_dtype(ac_space), np.float32)
-      logits_templates = None
-    elif version == 'v2': # neglogp/logits is structure same as ac_space
-      neglogp_shape_dtype = map_gym_space_to_structure(lambda x: ([], np.float32), ac_space)
-      neglogp_templates = template_structure_from_gym_space(ac_space)
-      logits_shape_dtype = map_gym_space_to_structure(logit_shape_dtype, ac_space)
-      logits_templates = template_structure_from_gym_space(ac_space)
-    else:
-      raise KeyError('version not support!')
+    neglogp_shape_dtype = map_gym_space_to_structure(lambda x: ([], np.float32), ac_space)
+    neglogp_templates = template_structure_from_gym_space(ac_space)
+    logits_shape_dtype = map_gym_space_to_structure(logit_shape_dtype, ac_space)
+    logits_templates = template_structure_from_gym_space(ac_space)
     specs = [map_gym_space_to_structure(shape_dtype, ob_space),
              map_gym_space_to_structure(shape_dtype, ac_space),
              neglogp_shape_dtype]
@@ -113,9 +105,9 @@ class PGData(DataStructure):
 class PPOData(PGData):
   # old data structure. logp & logit are long vectors
   def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
-               distillation=False, version='v1'):
+               distillation=False):
     super(PPOData, self).__init__(ob_space, ac_space, n_v, use_lstm,
-                                  hs_len, distillation, version)
+                                  hs_len, distillation)
     self.fields.extend(['R', 'V'])
     self.specs.extend([([n_v], np.float32),
                        ([n_v], np.float32)])
@@ -125,9 +117,9 @@ class PPOData(PGData):
 
 class VtraceData(PGData):
   def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
-               distillation=False, version='v1'):
+               distillation=False):
     super(VtraceData, self).__init__(ob_space, ac_space, n_v, use_lstm,
-                                     hs_len, distillation, version)
+                                     hs_len, distillation)
     self.fields.extend(['r', 'discount'])
     self.specs.extend([([n_v], np.float32),
                        ([], np.float32)])

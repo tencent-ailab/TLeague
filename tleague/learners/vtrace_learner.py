@@ -6,8 +6,6 @@ import sys
 if sys.version_info.major > 2:
   xrange = range
 
-import tensorflow as tf
-from tensorflow.contrib.framework import nest
 from tleague.learners.pg_learner import PGLearner
 from tleague.utils.data_structure import VtraceData
 

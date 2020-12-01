@@ -3,7 +3,6 @@ from __future__ import division
 from __future__ import print_function
 
 import time
-from copy import deepcopy
 
 import numpy as np
 
@@ -89,8 +88,6 @@ class VtraceActor(PGActor):
         else:
           value, state, neglogpac = other_vars
         if done:
-          info = deepcopy(info)
-          info['outcome'] = self.log_outcome(info)
           infos.append(info)
         if mask and self.distillation:
           self._update_distill_agent_model()

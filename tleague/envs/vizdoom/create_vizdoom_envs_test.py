@@ -2,11 +2,13 @@ from tleague.envs.vizdoom.create_vizdoom_envs import create_vizdoom_env
 from tleague.utils.gym_space import assert_matched
 
 
-def vizdoom_cig2017_track1_test():
-  env_config = {
+def vizdoom_cig2017_track1_test(env_config=None):
+  env_config = env_config or {
     'num_players': 3,
     'num_bots': 2,
     'episode_timeout': 21000,
+    'is_window_visible': True,
+    'train_mode': 'frag',
   }
   inter_config = {}
   max_steps = 5000
@@ -28,4 +30,17 @@ def vizdoom_cig2017_track1_test():
 
 
 if __name__ == '__main__':
-  vizdoom_cig2017_track1_test()
+  vizdoom_cig2017_track1_test({
+    'num_players': 3,
+    'num_bots': 2,
+    'episode_timeout': 21000,
+    'is_window_visible': True,
+    'train_mode': 'frag',
+  })
+  vizdoom_cig2017_track1_test({
+    'num_players': 2,
+    'num_bots': 2,
+    'episode_timeout': 21000,
+    'is_window_visible': True,
+    'train_mode': 'navi',
+  })

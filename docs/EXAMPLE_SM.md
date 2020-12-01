@@ -37,6 +37,39 @@ See the following:
 
 See the following:
 * [PFSP+PPO](EXAMPLE_POM_PFSP_PPO.md)
+* [PFSP+PPO](EXAMPLE_POM_PFSP_PPO_INFSERVER.md)
+
+## Soccer
+<img src="./pic-soccer.png" alt="soccer" width="222" height="161">
+
+Soccer is a multi-agent environment with continuous control.
+To run the soccer examples, 
+one should additionally install [dm_control](https://github.com/deepmind/dm_control) when installing `Arena`,
+see the `Arena` [docs here](https://github.com/tencent-ailab/Arena#dependencies). 
+
+See the following:
+* [SelfPlay+PPO](EXAMPLE_SOCCER_SP_PPO.md)
+
+## Single Agent RL
+TLeague also works for pure RL,
+which can be viewed as a special case of MARL where the number of agents equals to one.
+
+### Gym Atari
+<img src="./pic-breakout.png" alt="breakout" width="128"> <img src="./pic-seaquest.png" alt="seaquest" width="128"> <img src="./pic-spaceinvaders.png" alt="spaceinvaders" width="128">
+
+Here we provide examples for how TLeague trains with Atari based on `gym`.
+Make sure you've installed the correct dependencies, e.g.,
+```bash
+pip install gym[atari]==0.12.1
+```
+
+See the following:
+* [PPO](EXAMPLE_GYM_ATARI_PPO.md)
+
+**NOTE**: the purpose of these examples are to show how TLeague trains in the case of single agent RL.
+To get reasonable performance, one needs careful preprocessings.
+Refer to the [`open/baselines`](https://github.com/openai/baselines) code, 
+as well as the [paper here](https://arxiv.org/abs/2005.12729).
 
 ## Terminology
 Through all the examples above, we use the terminology:

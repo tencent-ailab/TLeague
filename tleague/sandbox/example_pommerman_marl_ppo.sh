@@ -139,14 +139,12 @@ python3 -m tleague.scripts.run_pg_actor \
   --env_config="${env_config}" \
   --interface_config="${interface_config}" \
   --replay_dir=./tmp_trmmyy_replays \
-  --agent=tleague.actors.agent.PPOAgent2 \
   --policy="${policy}" \
   --policy_config="${self_policy_config}" \
   --log_interval_steps=3 \
   --n_v=11 \
   --norwd_shape \
   --nodistillation \
-  --version=v2 \
   --verbose=0 \
   --type=PPO
 fi

@@ -43,7 +43,7 @@ class PGActor(BaseActor):
                log_interval_steps=51, distillation=False, replay_dir=None,
                agent_cls=None, version='v1', self_infserver_addr=None,
                distill_infserver_addr=None, compress=True, use_oppo_obs=False,
-               data_type=PGData):
+               data_type=PGData, **kwargs):
     super(PGActor, self).__init__(league_mgr_addr,
                                   model_pool_addrs,
                                   learner_addr,

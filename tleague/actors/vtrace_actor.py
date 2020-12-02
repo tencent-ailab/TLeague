@@ -15,18 +15,10 @@ from tleague.utils.data_structure import VtraceData
 
 class VtraceActor(PGActor):
   """Actor for Vtrace."""
-  def __init__(self, env, policy, league_mgr_addr, model_pool_addrs,
-               policy_config=None, learner_addr=None, unroll_length=32,
-               update_model_freq=32, n_v=1, verbose=0, rwd_shape=True,
-               log_interval_steps=51, distillation=False, replay_dir=None,
-               agent_cls=None, version='v1', self_infserver_addr=None,
-               distill_infserver_addr=None, compress=True):
-    super(VtraceActor, self).__init__(
-      env, policy, league_mgr_addr, model_pool_addrs, policy_config,
-      learner_addr, unroll_length, update_model_freq, n_v, verbose, rwd_shape,
-      log_interval_steps, distillation, replay_dir, agent_cls, version,
-      self_infserver_addr, distill_infserver_addr, compress,
-      data_type=VtraceData)
+  def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, **kwargs):
+    super(VtraceActor, self).__init__(env, policy, league_mgr_addr,
+                                      model_pool_addrs, data_type=VtraceData,
+                                      **kwargs)
 
   def _push_data_to_learner(self, data_queue):
     logger.log('entering _push_data_to_learner',

@@ -47,7 +47,8 @@ class PGLearner(BaseLearner):
                use_mixed_precision=False, use_sparse_as_dense=True,
                adam_beta1=0.9, adam_beta2=0.999, adam_eps=1e-5,
                data_type=PGData, data_server_version='v1',
-               decode=False, log_infos_interval=20, **kwargs):
+               decode=False, log_infos_interval=20, ep_loss_coef=None,
+               **kwargs):
     super(PGLearner, self).__init__(league_mgr_addr, model_pool_addrs,
                                     learner_ports, learner_id)
 
@@ -57,9 +58,8 @@ class PGLearner(BaseLearner):
     self.CLIPRANGE = tf.placeholder(tf.float32, [])
     """Learning Rate Clip Range"""
 
-    self.ep_loss_coef = {}
-    """Coefficients for those losses from the endpoints. Override it in derived
-     class."""
+    self.ep_loss_coef = ep_loss_coef or {}
+    """Coefficients for those losses from the endpoints."""
 
     # TODO(pengsun): fix the policy_config default value
     self._init_const(total_timesteps, burn_in_timesteps, batch_size,

@@ -149,7 +149,7 @@ fi
 if [ $role == learner ]
 then
 python3 -m tleague.bin.run_pg_learner \
-  --learner_spec=-1:30003:30004 \
+  --learner_spec=0:30003:30004 \
   --model_pool_addrs=localhost:10003:10004 \
   --league_mgr_addr=localhost:20005 \
   --learner_id=lrngrp0 \

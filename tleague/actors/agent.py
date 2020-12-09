@@ -170,17 +170,20 @@ class PGAgent(Agent):
     return self._state
 
   def logits(self, obs, action=None):
-    if action is None:
-      assert self.net_out.self_fed_heads is not None
-      heads = self.net_out.self_fed_heads
+    if self.infserver_addr is None:
+      if action is None:
+        assert self.net_out.self_fed_heads is not None
+        heads = self.net_out.self_fed_heads
+      else:
+        assert self.net_out.outer_fed_heads is not None
+        heads = self.net_out.outer_fed_heads
+      fetches = {'logits': nest.map_structure_up_to(self._ac_structure,
+                                                    lambda head: head.logits,
+                                                    heads)}
     else:
-      assert self.net_out.outer_fed_heads is not None
-      heads = self.net_out.outer_fed_heads
-    fetches = {'logits': nest.map_structure_up_to(self._ac_structure,
-                                                  lambda head: head.logits,
-                                                  heads)}
+      fetches = None
     ret = self._forward(obs, fetches, action)
-    return _squeeze_batch_size_singleton_dim(ret['logits'])
+    return ret['logits']
 
 
 def _squeeze_batch_size_singleton_dim(st):

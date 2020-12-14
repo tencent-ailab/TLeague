@@ -6,18 +6,19 @@ import time
 
 import numpy as np
 
-from tleague.actors.pg_actor import PGActor
+from tleague.actors.actor import Actor
+from tleague.actors.agent import PGAgent
 from tleague.utils import logger
 from tleague.utils.io import TensorZipper
 from tleague.utils.data_structure import PPOData
 
 
-class PPOActor(PGActor):
+class PPOActor(Actor):
   """Actor for PPO."""
   def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, **kwargs):
     super(PPOActor, self).__init__(env, policy, league_mgr_addr,
                                    model_pool_addrs, data_type=PPOData,
-                                   **kwargs)
+                                   age_cls=PGAgent, **kwargs)
 
   def _push_data_to_learner(self, data_queue):
     logger.log('entering _push_data_to_learner',
@@ -31,11 +32,6 @@ class PPOActor(PGActor):
     if self.distillation:
       self._update_distill_agent_model()
       self.distill_agent.reset(last_obs[me_id])
-    if self.use_oppo_obs:
-      value, state, neglogpac, oppo_state = other_vars
-    else:
-      value, state, neglogpac = other_vars
-      oppo_state = None
 
     # loop infinitely to make the unroll on and on
     while True:
@@ -52,10 +48,10 @@ class PPOActor(PGActor):
             me_action = tuple(me_action)
           # Make a `data` for this time step. The `data` is a PGData compatible
           # list, see the PGData definition
-          data = [last_obs[me_id], me_action, neglogpac]
+          data = [last_obs[me_id], me_action, other_vars['neglogp']]
           if self.rnn:
             # hidden state and temporal mask for rnn
-            data.extend([state, np.array(mask, np.bool)])
+            data.extend([other_vars['state'], np.array(mask, np.bool)])
           if self.distillation:
             # teacher logits
             logits = (self.distill_agent.logits(last_obs[me_id], me_action)
@@ -66,11 +62,11 @@ class PPOActor(PGActor):
             data.append(last_obs[oppo_id])
             if self.rnn:
               # oppo hidden state for rnn; mask same as self_agent
-              data.append(oppo_state)
+              data.append(other_vars['oppo_state'])
           data = self.ds.structure(data)
-          data.V = value
+          data.V = other_vars['v']
           data.R = 0.0 # filled later by td_lambda return
-          mb_values.append(value)
+          mb_values.append(other_vars['v'])
           mb_rewards.append(reward)
           mb_dones.append(done)
           # Notice: a new episode must starts with a valid obs, not None obs,
@@ -85,10 +81,6 @@ class PPOActor(PGActor):
           mb_dones[-1] += done
 
         last_obs, actions, reward, info, done, other_vars = data_queue.get()
-        if self.use_oppo_obs:
-          value, state, neglogpac, oppo_state = other_vars
-        else:
-          value, state, neglogpac = other_vars
         if done:
           infos.append(info)
         if mask and self.distillation:
@@ -101,7 +93,7 @@ class PPOActor(PGActor):
 
       last_gae_lam = 0
       for t in reversed(range(self._unroll_length)):
-        next_values = (value if t == self._unroll_length - 1
+        next_values = (other_vars['v'] if t == self._unroll_length - 1
                        else mb_values[t + 1])
         delta = (mb_rewards[t] + (self._gamma ** (mb_skips[t]+1))
                  * next_values * (1 - mb_dones[t]) - mb_values[t])

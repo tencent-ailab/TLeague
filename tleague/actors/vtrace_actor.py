@@ -6,18 +6,19 @@ import time
 
 import numpy as np
 
-from tleague.actors.pg_actor import PGActor
+from tleague.actors.actor import Actor
+from tleague.actors.agent import PGAgent
 from tleague.utils import logger
 from tleague.utils.io import TensorZipper
 from tleague.utils.data_structure import VtraceData
 
 
-class VtraceActor(PGActor):
+class VtraceActor(Actor):
   """Actor for Vtrace."""
   def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, **kwargs):
     super(VtraceActor, self).__init__(env, policy, league_mgr_addr,
                                       model_pool_addrs, data_type=VtraceData,
-                                      **kwargs)
+                                      age_cls=PGAgent, **kwargs)
 
   def _push_data_to_learner(self, data_queue):
     logger.log('entering _push_data_to_learner',
@@ -31,11 +32,6 @@ class VtraceActor(PGActor):
     if self.distillation:
       self._update_distill_agent_model()
       self.distill_agent.reset(last_obs[me_id])
-    if self.use_oppo_obs:
-      value, state, neglogpac, oppo_state = other_vars
-    else:
-      value, state, neglogpac = other_vars
-      oppo_state = None
 
     # loop infinitely to make the unroll on and on
     while True:
@@ -52,10 +48,10 @@ class VtraceActor(PGActor):
             me_action = tuple(me_action)
           # Make a `data` for this time step. The `data` is a PGData compatible
           # list, see the PGData definition
-          data = [last_obs[me_id], me_action, neglogpac]
+          data = [last_obs[me_id], me_action, other_vars['neglogp']]
           if self.rnn:
             # hidden state and temporal mask for rnn
-            data.extend([state, np.array(mask, np.bool)])
+            data.extend([other_vars['state'], np.array(mask, np.bool)])
           if self.distillation:
             # teacher logits
             logits = (self.distill_agent.logits(last_obs[me_id], me_action)
@@ -66,7 +62,7 @@ class VtraceActor(PGActor):
             data.append(last_obs[oppo_id])
             if self.rnn:
               # oppo hidden state for rnn; mask same as self_agent
-              data.append(oppo_state)
+              data.append(other_vars['oppo_state'])
           data = self.ds.structure(data)
           data.r = reward
           data.discount = 1.0
@@ -83,10 +79,6 @@ class VtraceActor(PGActor):
           data.discount *= (1 - done) * self._gamma
 
         last_obs, actions, reward, info, done, other_vars = data_queue.get()
-        if self.use_oppo_obs:
-          value, state, neglogpac, oppo_state = other_vars
-        else:
-          value, state, neglogpac = other_vars
         if done:
           infos.append(info)
         if mask and self.distillation:

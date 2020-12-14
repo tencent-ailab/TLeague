@@ -150,7 +150,8 @@ class PGAgent(Agent):
     else:
       fetches = None
     ret = self._forward(obs, fetches=fetches)
-    return ret['a'], ret.get('v', []), self._last_state, ret['neglogp']
+    ret['state'] = self._last_state
+    return ret.pop('a'), ret
 
   def step(self, obs):
     if self.infserver_addr is None:

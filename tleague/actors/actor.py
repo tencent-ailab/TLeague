@@ -9,11 +9,9 @@ from threading import Thread
 import numpy as np
 
 from tleague.utils import run_parallel
-from tleague.actors.agent import PGAgent
 from tleague.actors.base_actor import BaseActor
 from tleague.utils import logger
 from tleague.utils.tl_types import is_inherit
-from tleague.utils.data_structure import PGData, InfData
 
 
 def _get_oppo_names(env):
@@ -28,24 +26,24 @@ def _get_n_players(env):
   return len(env.action_space.spaces)
 
 
-class PGActor(BaseActor):
+class Actor(BaseActor):
   """Actor that carries two or more PGAgents and sends trajectories to learner.
 
   Agent 0 is viewed as learning agent, i.e., only the trajectories from
   agents[0] will be pushed to the learner.
   """
-  def __init__(self, env, policy, league_mgr_addr, model_pool_addrs,
-               policy_config=None, learner_addr=None, unroll_length=32,
+  def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, age_cls,
+               data_type, policy_config=None, learner_addr=None, unroll_length=32,
                update_model_freq=32, n_v=1, verbose=0, rwd_shape=True,
                log_interval_steps=51, distillation=False, replay_dir=None,
                self_infserver_addr=None, distill_infserver_addr=None,
                compress=True, use_oppo_obs=False, post_process_data=None,
-               data_type=PGData, **kwargs):
-    super(PGActor, self).__init__(league_mgr_addr,
-                                  model_pool_addrs,
-                                  learner_addr,
-                                  verbose=verbose,
-                                  log_interval_steps=log_interval_steps)
+               **kwargs):
+    super(Actor, self).__init__(league_mgr_addr,
+                                model_pool_addrs,
+                                learner_addr,
+                                verbose=verbose,
+                                log_interval_steps=log_interval_steps)
 
     self.env = env
     # reset for getting ob/act space later in __init__,
@@ -83,7 +81,7 @@ class PGActor(BaseActor):
     policy_config['use_value_head'] = True
 
     # Create self agent
-    self_agt = PGAgent(policy, ob_space, ac_space, n_v=n_v, scope_name="self",
+    self_agt = age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name="self",
                        policy_config=policy_config, use_gpu_id=-1,
                        infserver_addr=self_infserver_addr, compress=compress)
 
@@ -93,7 +91,7 @@ class PGActor(BaseActor):
     # of value heads should be located after the policy (as it is currently)
     policy_config['use_value_head'] = False
     self.agents = [self_agt] + [
-      PGAgent(policy, ob_space, ac_space, n_v=n_v, scope_name=scope_name,
+      age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name=scope_name,
               policy_config=policy_config, use_gpu_id=-1, infserver_addr=None)
       for ob_space, ac_space, scope_name in zip(
         self.env.observation_space.spaces[self._oppo_agent_id:],
@@ -121,7 +119,7 @@ class PGActor(BaseActor):
     if self.distillation:
       policy_config['use_self_fed_heads'] = False
       self.distill_agent = \
-        PGAgent(policy, ob_space, ac_space, n_v=n_v, scope_name="distill",
+        age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name="distill",
                 policy_config=policy_config, use_gpu_id=-1,
                 infserver_addr=distill_infserver_addr, compress=compress)
     self._replay_dir = replay_dir
@@ -189,10 +187,7 @@ class PGActor(BaseActor):
         rwd_to_push = (me_rwd_scalar if self.rwd_shape
                        else np.asarray(reward[me_id], np.float32))
         if self.use_oppo_obs:
-          if isinstance(extra_vars, tuple):
-            extra_vars += (self.agents[self._oppo_agent_id]._last_state,)
-          else:
-            extra_vars.append(self.agents[self._oppo_agent_id]._last_state)
+          extra_vars['oppo_state'] = self.agents[self._oppo_agent_id]._last_state
         if done:
           outcome = self.log_outcome(info, reward)
           if not isinstance(info, dict):
@@ -241,7 +236,7 @@ class PGActor(BaseActor):
     if i == self._learning_agent_id:
       # see what the agent.forward_squeezed() returns
       output = (self.agents[i].forward_squeezed(ob) if ob is not None
-                else (None, 0, 0, 0))
+                else (None, {}))
     else:
       output = self.agents[i].step(ob) if ob is not None else None
     return output

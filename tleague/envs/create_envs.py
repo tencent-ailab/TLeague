@@ -30,12 +30,6 @@ RECOGNIZED_PONG_ID = {
   'pong_2p'
 }
 
-#TODO(pengsun): add more gym atari envs
-RECOGNIZED_GYM_ATARI_ID = {
-  'gym_atari_breakout-v4',
-  'gym_atari_seaquest-v4',
-  'gym_atari_spaceinvaders-v4',
-}
 
 def create_env(arena_id, env_config=None, inter_config=None):
   """ create env from arena/env id using LAZY IMPORT, i.e., the corresponding
@@ -58,7 +52,7 @@ def create_env(arena_id, env_config=None, inter_config=None):
   elif arena_id in RECOGNIZED_PONG_ID:
     from tleague.envs.pong import create_pong_env
     return create_pong_env(arena_id)
-  elif arena_id in RECOGNIZED_GYM_ATARI_ID:
+  elif arena_id.startswith('gym_'):
     from tleague.envs.gym_atari import create_gym_atari_env
     return create_gym_atari_env(arena_id)
   else:
@@ -91,7 +85,7 @@ def env_space(arena_id, env_config=None, inter_config=None):
   elif arena_id in RECOGNIZED_PONG_ID:
     from tleague.envs.pong import pong_env_space
     return pong_env_space(arena_id)
-  elif arena_id in RECOGNIZED_GYM_ATARI_ID:
+  elif arena_id.startswith('gym_'):
     from tleague.envs.gym_atari import gym_atari_env_space
     return gym_atari_env_space(arena_id)
   else:

@@ -22,19 +22,11 @@ class SingleAgentWrapper(gym.Wrapper):
     return (obs,), (rwd,), done, info
 
 
-_original_gym_env_names = {
-  'gym_atari_breakout-v4': 'Breakout-v4',
-  'gym_atari_seaquest-v4': 'Seaquest-v4',
-  'gym_atari_spaceinvaders-v4': 'SpaceInvaders-v4',
-}
-
-
 def create_gym_atari_env(arena_id):
   # TODO(pengsun): should refactor the Arena code
   from arena.wrappers.pong2p.pong2p_wrappers import ScaledFloatFrame
 
-  assert arena_id in _original_gym_env_names
-  env_name = _original_gym_env_names[arena_id]
+  env_name = arena_id.strip('gym_')
   env = gym.make(env_name)
   env = ScaledFloatFrame(env)
   env = SingleAgentWrapper(env)

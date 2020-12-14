@@ -65,20 +65,18 @@ class ILData(DataStructure):
 
 class PGData(DataStructure):
   def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
-               distillation=False, use_oppo_data=False):
-    _fields = ['X', 'A', 'neglogp']
+               distillation=False, use_oppo_data=False, random_policy=True):
+    _fields = ['X', 'A']
     shape_dtype = lambda x: (x.shape, x.dtype)
-    logit_shape_dtype = lambda x: (make_pdtype(x).param_shape(), np.float32)
-    neglogp_shape_dtype = map_gym_space_to_structure(lambda x: ([], np.float32), ac_space)
-    neglogp_templates = template_structure_from_gym_space(ac_space)
-    logits_shape_dtype = map_gym_space_to_structure(logit_shape_dtype, ac_space)
-    logits_templates = template_structure_from_gym_space(ac_space)
     specs = [map_gym_space_to_structure(shape_dtype, ob_space),
-             map_gym_space_to_structure(shape_dtype, ac_space),
-             neglogp_shape_dtype]
+             map_gym_space_to_structure(shape_dtype, ac_space)]
     templates = [template_structure_from_gym_space(ob_space),
-                 template_structure_from_gym_space(ac_space),
-                 neglogp_templates]
+                 template_structure_from_gym_space(ac_space)]
+    if random_policy:
+      _fields.append('neglogp')
+      specs.append(map_gym_space_to_structure(
+        lambda x: ([], np.float32), ac_space))
+      templates.append(template_structure_from_gym_space(ac_space))
     if use_lstm:
       assert int(hs_len) == hs_len
       _fields.extend(['S', 'M'])
@@ -87,6 +85,10 @@ class PGData(DataStructure):
       templates.extend([None, None, ])
     if distillation:
       _fields.append('logits')
+      logit_shape_dtype = lambda x: (make_pdtype(x).param_shape(), np.float32)
+      logits_shape_dtype = map_gym_space_to_structure(logit_shape_dtype,
+                                                      ac_space)
+      logits_templates = template_structure_from_gym_space(ac_space)
       specs.append(logits_shape_dtype)
       templates.append(logits_templates)
     if use_oppo_data:
@@ -103,11 +105,10 @@ class PGData(DataStructure):
 
 
 class PPOData(PGData):
-  # old data structure. logp & logit are long vectors
   def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
-               distillation=False):
+               distillation=False, use_oppo_obs=False):
     super(PPOData, self).__init__(ob_space, ac_space, n_v, use_lstm,
-                                  hs_len, distillation)
+                                  hs_len, distillation, use_oppo_obs)
     self.fields.extend(['R', 'V'])
     self.specs.extend([([n_v], np.float32),
                        ([n_v], np.float32)])
@@ -117,9 +118,22 @@ class PPOData(PGData):
 
 class VtraceData(PGData):
   def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
-               distillation=False):
+               distillation=False, use_oppo_obs=False):
     super(VtraceData, self).__init__(ob_space, ac_space, n_v, use_lstm,
-                                     hs_len, distillation)
+                                     hs_len, distillation, use_oppo_obs)
+    self.fields.extend(['r', 'discount'])
+    self.specs.extend([([n_v], np.float32),
+                       ([], np.float32)])
+    self.templates.extend([None, None])
+    super(PGData, self).__init__(self.fields, self.specs, self.templates)
+
+
+class DDPGData(PGData):
+  def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
+               distillation=False, use_oppo_obs=False):
+    super(DDPGData, self).__init__(ob_space, ac_space, n_v, use_lstm,
+                                   hs_len, distillation, use_oppo_obs,
+                                   random_policy=False)
     self.fields.extend(['r', 'discount'])
     self.specs.extend([([n_v], np.float32),
                        ([], np.float32)])

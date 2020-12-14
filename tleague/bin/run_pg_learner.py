@@ -13,6 +13,7 @@ from tleague.envs.create_envs import env_space
 from tleague.learners.ppo_learner3 import PPOLearner
 from tleague.learners.ppo2_learner import PPO2Learner
 from tleague.learners.vtrace_learner import VtraceLearner
+from tleague.learners.ddpg_learner import DDPGLearner
 from tleague.utils import read_config_dict
 from tleague.utils import import_module_or_data
 
@@ -100,8 +101,12 @@ def main(_):
     Learner = PPOLearner
   elif FLAGS.type == 'PPO2':
     Learner = PPO2Learner
-  else:
+  elif FLAGS.type == 'VTrace':
     Learner = VtraceLearner
+  elif FLAGS.type == 'DDPG':
+    Learner = DDPGLearner
+  else:
+    raise KeyError(f'Not recognized learner type {FLAGS.type}!')
   learner = Learner(league_mgr_addr=FLAGS.league_mgr_addr,
                     model_pool_addrs=FLAGS.model_pool_addrs.split(','),
                     gpu_id=gpu_id,

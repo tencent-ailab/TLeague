@@ -138,9 +138,9 @@ class PGLearner(BaseLearner):
     self.param_norm = tf.global_norm(self.params)
 
     self.trainer = tf.train.AdamOptimizer(learning_rate=self.LR,
-                                     beta1=adam_beta1,
-                                     beta2=adam_beta2,
-                                     epsilon=adam_eps)
+                                          beta1=adam_beta1,
+                                          beta2=adam_beta2,
+                                          epsilon=adam_eps)
     self.burn_in_trainer = tf.train.AdamOptimizer(
       learning_rate=self.LR,
       epsilon=1e-5
@@ -171,11 +171,11 @@ class PGLearner(BaseLearner):
     self._train_batch = self.trainer.apply_gradients(grads_and_vars)
     self._burn_in = self.burn_in_trainer.apply_gradients(grads_and_vars_vf)
     self.loss_endpoints_names = model.loss.loss_endpoints.keys()
-    self._build_ops()
     if has_hvd:
       barrier_op = hvd.allreduce(tf.Variable(0.))
       broadcast_op = hvd.broadcast_global_variables(0)
     tf.global_variables_initializer().run(session=self.sess)
+    self._build_ops()
     self.sess.graph.finalize()
 
     self.barrier = lambda : self.sess.run(barrier_op) if has_hvd else None
@@ -264,8 +264,8 @@ class PGLearner(BaseLearner):
     self.hs_len = None
     self.n_v = policy_config['n_v']
     policy_config['batch_size'] = batch_size
+    policy_config['rollout_len'] = rollout_length
     if self.rnn:
-      policy_config['rollout_len'] = rollout_length
       self.hs_len = policy_config['hs_len']
 
   def _build_ops(self):

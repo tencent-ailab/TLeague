@@ -78,7 +78,6 @@ class Actor(BaseActor):
     policy_config['use_loss_type'] = 'none'
     policy_config['use_self_fed_heads'] = True
     policy_config['batch_size'] = 1
-    policy_config['use_value_head'] = True
 
     # Create self agent
     self_agt = age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name="self",
@@ -102,7 +101,7 @@ class Actor(BaseActor):
 
     # the data structure
     self.ds = data_type(ob_space, ac_space, n_v, use_lstm=self.rnn, hs_len=1,
-                        distillation=distillation)
+                        distillation=distillation, use_oppo_obs=use_oppo_obs)
     if self._enable_push:
       # Start a data-sending Thread that watches the _data_queue, see also the
       # self._push_data_to_learner() method
@@ -167,7 +166,7 @@ class Actor(BaseActor):
       predictions = self._parallel.run((self._agent_pred, ob, i)
                                        for i, ob in enumerate(obs))
       me_prediction = predictions[me_id]
-      me_action, extra_vars = me_prediction[0], me_prediction[1:]
+      me_action, extra_vars = me_prediction[0], me_prediction[1]
       actions = [me_action] + predictions[oppo_id:]
       # book-keep obs in previous step
       last_obs = obs
@@ -184,8 +183,10 @@ class Actor(BaseActor):
         # method) that the data are dequeued and sent to remote Learner
         if self._data_queue.full():
           logger.log("Actor's queue is full.", level=logger.WARN)
-        rwd_to_push = (me_rwd_scalar if self.rwd_shape
-                       else np.asarray(reward[me_id], np.float32))
+        rwd_to_push = me_rwd_scalar if self.rwd_shape else reward[me_id]
+        rwd_to_push = np.asarray(rwd_to_push, np.float32)
+        if rwd_to_push.shape == ():
+          rwd_to_push = np.asarray([rwd_to_push], np.float32)
         if self.use_oppo_obs:
           extra_vars['oppo_state'] = self.agents[self._oppo_agent_id]._last_state
         if done:

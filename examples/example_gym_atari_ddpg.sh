@@ -4,25 +4,26 @@
 
 role=$1
 # common args
-env=gym_Breakout-v4  # {gym_atari_Seaquest-v4 | gym_atari_SpaceInvaders-v4}
+env=gym_Pendulum-v0
 game_mgr_type=tleague.game_mgr.game_mgrs.SelfPlayGameMgr && \
 game_mgr_config="{
   'max_n_players': 1}"
 mutable_hyperparam_type=ConstantHyperparam
 hyperparam_config_name="{ \
   'learning_rate': 0.0001, \
-  'lam': 0.99, \
-  'gamma': 0.99, \
+  'lam': 0.9, \
+  'gamma': 0.9, \
 }" && \
-policy=tpolicies.net_zoo.conv_lstm.conv_lstm;
+policy=tpolicies.net_zoo.gym_ddpg.ddpg;
 policy_config="{ \
   'use_xla': False, \
   'test': False, \
   'rl': True, \
   'use_loss_type': 'rl', \
   'use_value_head': True, \
+  'use_target_net': True, \
   'n_v': 1, \
-  'use_lstm': True, \
+  'use_lstm': False, \
   'nlstm': 32, \
   'hs_len': 64, \
   'lstm_dropout_rate': 0.2, \
@@ -36,9 +37,9 @@ self_policy_config="{ \
   'use_xla': False, \
   'test': True, \
   'use_loss_type': 'none', \
-  'use_value_head': True, \
+  'use_value_head': False, \
   'n_v': 1, \
-  'use_lstm': True, \
+  'use_lstm': False, \
   'nlstm': 32, \
   'hs_len': 64, \
   'lstm_dropout_rate': 0.2, \
@@ -106,7 +107,7 @@ python3 -m tleague.bin.run_pg_learner \
   --batch_worker_num=1 \
   --norwd_shape \
   --learner_config="${learner_config}" \
-  --type=PPO
+  --type=DDPG
 fi
 
 # actor
@@ -128,5 +129,5 @@ python3 -m tleague.bin.run_pg_actor \
   --rwd_shape \
   --nodistillation \
   --verbose=0 \
-  --type=PPO
+  --type=DDPG
 fi

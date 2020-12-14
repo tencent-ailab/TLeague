@@ -9,6 +9,7 @@ from absl import flags
 from tleague.actors.ppo_actor import PPOActor
 from tleague.actors.ppo2_actor import PPO2Actor
 from tleague.actors.vtrace_actor import VtraceActor
+from tleague.actors.ddpg_actor import DDPGActor
 from tleague.envs.create_envs import create_env
 from tleague.utils import read_config_dict
 from tleague.utils import import_module_or_data
@@ -77,8 +78,12 @@ def main(_):
     Actor = PPOActor
   elif FLAGS.type == 'PPO2':
     Actor = PPO2Actor
-  else:
+  elif FLAGS.type == 'VTrace':
     Actor = VtraceActor
+  elif FLAGS.type == 'DDPG':
+    Actor = DDPGActor
+  else:
+    raise KeyError(f'Not recognized learner type {FLAGS.type}!')
   actor = Actor(env, policy,
                 policy_config=policy_config,
                 league_mgr_addr=FLAGS.league_mgr_addr or None,

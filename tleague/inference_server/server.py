@@ -167,24 +167,24 @@ class InfServer(object):
       neglogp = nest.map_structure_up_to(self._ac_structure,
                                          lambda head: head.neglogp,
                                          self.net_out.self_fed_heads)
-      logits = nest.map_structure_up_to(self._ac_structure,
-                                        lambda head: head.logits,
-                                        self.net_out.self_fed_heads)
+      flatparam = nest.map_structure_up_to(self._ac_structure,
+                                           lambda head: head.flatparam,
+                                           self.net_out.self_fed_heads)
       self.all_outputs = {
         'a': split_batch(self._ac_structure, a),
         'neglogp': split_batch(self._ac_structure, neglogp),
-        'logits': split_batch(self._ac_structure, logits),
+        'flatparam': split_batch(self._ac_structure, flatparam),
         'v': tf.split(self.net_out.value_head, self.batch_size)
             if self.net_out.value_head is not None else [[]]*self.batch_size,
         'state': tf.split(self.net_out.S, self.batch_size)
             if self.net_out.S is not None else [[]]*self.batch_size
       }
     else:
-      logits = nest.map_structure_up_to(self._ac_structure,
-                                        lambda head: head.logits,
-                                        self.net_out.outer_fed_heads)
+      flatparam = nest.map_structure_up_to(self._ac_structure,
+                                           lambda head: head.flatparam,
+                                           self.net_out.outer_fed_heads)
       self.all_outputs = {
-        'logits': split_batch(self._ac_structure, logits),
+        'flatparam': split_batch(self._ac_structure, flatparam),
         'state': tf.split(self.net_out.S, self.batch_size)
             if self.net_out.S is not None else [[]] * self.batch_size
       }

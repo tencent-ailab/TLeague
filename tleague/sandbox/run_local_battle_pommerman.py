@@ -18,7 +18,7 @@ flags.DEFINE_string("env_config", "{'random_side': True, \
                               'docker::multiagentlearning/navocado,' \
                               'docker::multiagentlearning/navocado', \
                 'rule_agents': [1, 3]}", "env_config")
-flags.DEFINE_string("policy", "tpolicies.net_zoo.pomme.conv_lstm", "policy used for agent")
+flags.DEFINE_string("policy", "tpolicies.net_zoo.pommerman.conv_lstm", "policy used for agent")
 flags.DEFINE_string("model", "./model", "model file used for agent")
 flags.DEFINE_string("replay_dir", None, "replay path to store")
 flags.DEFINE_string("policy_config", "", "config used for policy")

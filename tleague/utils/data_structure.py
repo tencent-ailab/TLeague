@@ -84,13 +84,13 @@ class PGData(DataStructure):
                     ([], np.bool), ])
       templates.extend([None, None, ])
     if distillation:
-      _fields.append('logits')
+      _fields.append('flatparam')
       logit_shape_dtype = lambda x: (make_pdtype(x).param_shape(), np.float32)
-      logits_shape_dtype = map_gym_space_to_structure(logit_shape_dtype,
-                                                      ac_space)
-      logits_templates = template_structure_from_gym_space(ac_space)
-      specs.append(logits_shape_dtype)
-      templates.append(logits_templates)
+      param_shape_dtype = map_gym_space_to_structure(logit_shape_dtype,
+                                                     ac_space)
+      param_templates = template_structure_from_gym_space(ac_space)
+      specs.append(param_shape_dtype)
+      templates.append(param_templates)
     if use_oppo_data:
       _fields.append('OPPO_X')
       specs.append(map_gym_space_to_structure(shape_dtype, ob_space))

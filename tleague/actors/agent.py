@@ -170,7 +170,7 @@ class PGAgent(Agent):
     self._forward(obs, fetches=fetches)
     return self._state
 
-  def logits(self, obs, action=None):
+  def head_param(self, obs, action=None):
     if self.infserver_addr is None:
       if action is None:
         assert self.net_out.self_fed_heads is not None
@@ -178,13 +178,12 @@ class PGAgent(Agent):
       else:
         assert self.net_out.outer_fed_heads is not None
         heads = self.net_out.outer_fed_heads
-      fetches = {'logits': nest.map_structure_up_to(self._ac_structure,
-                                                    lambda head: head.logits,
-                                                    heads)}
+      fetches = {'flatparam': nest.map_structure_up_to(
+        self._ac_structure, lambda head: head.flatparam, heads)}
     else:
       fetches = None
     ret = self._forward(obs, fetches, action)
-    return ret['logits']
+    return ret['flatparam']
 
 
 class DDPGAgent(PGAgent):
@@ -201,19 +200,6 @@ class DDPGAgent(PGAgent):
     if self._state is not None:
       ret['state'] = self._last_state
     return ret.pop('a'), ret
-
-  def logits(self, obs, action=None):
-    if action is None:
-      assert self.net_out.self_fed_heads is not None
-      heads = self.net_out.self_fed_heads
-    else:
-      assert self.net_out.outer_fed_heads is not None
-      heads = self.net_out.outer_fed_heads
-    fetches = {'logits': nest.map_structure_up_to(self._ac_structure,
-                                                  lambda head: head.logits,
-                                                  heads)}
-    ret = self._forward(obs, fetches, action)
-    return _squeeze_batch_size_singleton_dim(ret['logits'])
 
 
 def _squeeze_batch_size_singleton_dim(st):

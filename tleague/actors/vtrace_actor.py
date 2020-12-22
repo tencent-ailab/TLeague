@@ -54,9 +54,9 @@ class VtraceActor(Actor):
             data.extend([other_vars['state'], np.array(mask, np.bool)])
           if self.distillation:
             # teacher logits
-            logits = (self.distill_agent.logits(last_obs[me_id], me_action)
-                      if last_obs[me_id] is not None else None)
-            data.append(logits)
+            head_param = (self.distill_agent.head_param(last_obs[me_id], me_action)
+              if last_obs[me_id] is not None else None)
+            data.append(head_param)
           if self.use_oppo_obs:
             # for fully centralized value net
             data.append(last_obs[oppo_id])

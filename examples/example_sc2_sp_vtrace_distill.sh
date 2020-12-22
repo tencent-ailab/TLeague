@@ -1,11 +1,11 @@
 #!/bin/bash
 # Example of sc2 multi-agent reinforcement learning without Inference Server, running on a single machine.
-# Training from scratch with VTrace algorithm, no teacher-student KL regularization (no distillation loss).
+# Training from scratch with VTrace algorithm, with teacher-student KL regularization.
 
 role=$1
 # common args
 zstat_data_src=/Users/pengsun/code/tmp/replay_ds/rp1706-mv7-mmr6200-victory-selected-174
-#zstat_data_src=/Users/jcxiong/SC2/rp1522-mv-zstat-tmp-selected-2
+zstat_data_src=/Users/jcxiong/SC2/rp1522-mv-zstat-tmp-selected-2
 game_mgr_type=tleague.game_mgr.game_mgrs.SelfPlayGameMgr && \
 game_mgr_config="{}"  # null for SelfPlayGameMgr
 mutable_hyperparam_type=MutableHyperparam
@@ -15,6 +15,7 @@ hyperparam_config_name="{ \
   'gamma': 1.0, \
   'burn_in_timesteps': 10, \
   'reward_weights': [1.0, 1.0, 1.0, 1.5, 1.5, 1.5], \
+  'distill_model_key' : 'rand_model:0001', \
 }" && \
 policy=tpolicies.net_zoo.mnet_v6.mnet_v6d6;
 policy_config="{ \
@@ -36,7 +37,7 @@ policy_config="{ \
   'arg_scope_type': 'mnet_v5_type_a', \
   'endpoints_verbosity': 10, \
   'n_v': 6, \
-  'distillation': False, \
+  'distillation': True, \
   'fix_all_embed': False, \
   'use_base_mask': True, \
   'zstat_embed_version': 'v3', \
@@ -92,7 +93,7 @@ self_policy_config="{ \
 learner_config="{ \
   'vf_coef': [5, 0.5, 0.5, 0.5, 0.5, 0.5], \
   'max_grad_norm': 1.0, \
-  'distill_coef': 0, \
+  'distill_coef': [0.01, 0.002, 0.0015, 0.002, 0.002, 0.001], \
   'ent_coef': [0.00002, 0.00002, 0.00015, 0.00002, 0.00002, 0.00001], \
   'ep_loss_coef' : {'upgo_loss': 1} \
 }" && \
@@ -188,7 +189,7 @@ python3 -m tleague.bin.run_pg_actor \
   --log_interval_steps=3 \
   --n_v=6 \
   --norwd_shape \
-  --nodistillation \
+  --distillation \
   --verbose=0 \
   --type=VTrace
 fi

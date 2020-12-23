@@ -69,9 +69,6 @@ class InferDataServer(object):
       yield data + (msg[0].bytes,)
 
   def _pull_data(self):
-    def _squeeze_batch_size_singleton_dim(st):
-      return nest.map_structure(
-        lambda x: np.squeeze(x, axis=0) if isinstance(x, np.ndarray) else x, st)
     while True:
       # pull obs
       try:
@@ -82,7 +79,6 @@ class InferDataServer(object):
       # send response
       while not self._response_queue.empty():
         ids, outputs = self._response_queue.get()
-        outputs = [_squeeze_batch_size_singleton_dim(o) for o in outputs]
         for data_id, output in zip(ids, outputs):
           self._rep_socket.send_multipart([data_id, b'', pickle.dumps(output)])
 

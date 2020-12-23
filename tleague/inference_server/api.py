@@ -38,7 +38,7 @@ class InfServerAPIs(object):
     while True:
       socks = dict(self.poll.poll(self.timeout))
       if socks.get(self._req_socket) == zmq.POLLIN:
-        ret = self._req_socket.recv()
+        ret = self._req_socket.recv_pyobj()
         break
       else:
         print(f'Timeout ({self.timeout} ms) for request inference service,'

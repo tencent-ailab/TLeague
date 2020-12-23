@@ -107,8 +107,6 @@ class Agent(object):
       if self._state is not None:
         fetches['state'] = self.net_out.S
       ret = self.sess.run(fetches, feed_dict=feed_dict)
-      ret = dict([(k, _squeeze_batch_size_singleton_dim(v))
-                  for k, v in ret.items()])
     else:
       data = [obs]
       if action is not None:
@@ -116,6 +114,8 @@ class Agent(object):
       if self._state is not None:
         data.extend([self.state, np.array(False)])
       ret = self.apis.request_output(self.ds.structure(data))
+    ret = dict([(k, _squeeze_batch_size_singleton_dim(v))
+                for k, v in ret.items()])
     if self._state is not None:
       self._last_state = self._state
       self._state = ret.pop('state')

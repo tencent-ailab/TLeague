@@ -2,7 +2,7 @@ import pickle
 import time
 import os
 from queue import Queue
-from threading import Thread, Lock
+from threading import Thread
 
 import zmq
 import numpy as np

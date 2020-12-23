@@ -181,8 +181,6 @@ class Actor(BaseActor):
         # put the interested data (obs, rwd, act, ... for each agent) into the
         # _data_queue, which is watched in another Thread (the _push_data_to_learner()
         # method) that the data are dequeued and sent to remote Learner
-        if self._data_queue.full():
-          logger.log("Actor's queue is full.", level=logger.WARN)
         rwd_to_push = me_rwd_scalar if self.rwd_shape else reward[me_id]
         rwd_to_push = np.asarray(rwd_to_push, np.float32)
         if rwd_to_push.shape == ():
@@ -199,6 +197,8 @@ class Actor(BaseActor):
                         rwd_to_push, info, done, extra_vars)
         else:
           data_tuple = (last_obs, tuple(actions), rwd_to_push, info, done, extra_vars)
+        if self._data_queue.full():
+          logger.log("Actor's queue is full.", level=logger.WARN)
         self._data_queue.put(data_tuple)
         logger.log('successfully put one tuple.', level=logger.DEBUG)
 

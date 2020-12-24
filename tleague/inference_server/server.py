@@ -5,7 +5,6 @@ from queue import Queue
 from threading import Thread
 
 import zmq
-import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.framework import nest
 import tpolicies.tp_utils as tp_utils

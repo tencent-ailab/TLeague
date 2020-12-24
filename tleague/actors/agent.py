@@ -33,6 +33,7 @@ class Agent(object):
     self.rnn = (False if 'use_lstm' not in policy_config
                 else policy_config['use_lstm'])
     # numpy rnn state stuff (if any)
+    self._last_state = None
     if not self.rnn:
       self._hs_len = None
       self._state = None

@@ -45,6 +45,7 @@ flags.DEFINE_string("post_process_data", None,
 flags.DEFINE_boolean("compress", True, "whether data is compressed for infserver")
 flags.DEFINE_boolean("rwd_shape", True, "do reward shape in actor")
 flags.DEFINE_boolean("distillation", False, "use distillation policy")
+flags.DEFINE_string("distill_policy_config", "", "config used for distill policy")
 # printing/logging
 flags.DEFINE_integer("verbose", 11,
                      "verbosity. The smaller, the noisier. Reference:"
@@ -71,6 +72,7 @@ def main(_):
                    inter_config=interface_config)
   policy = import_module_or_data(FLAGS.policy)
   policy_config = read_config_dict(FLAGS.policy_config)
+  distill_policy_config = read_config_dict(FLAGS.distill_policy_config)
   post_process_data = None
   if FLAGS.post_process_data is not None:
     post_process_data = import_module_or_data(FLAGS.post_process_data)
@@ -96,6 +98,7 @@ def main(_):
                 log_interval_steps=FLAGS.log_interval_steps,
                 rwd_shape=FLAGS.rwd_shape,
                 distillation=FLAGS.distillation,
+                distill_policy_config=distill_policy_config,
                 replay_dir=FLAGS.replay_dir,
                 compress=FLAGS.compress,
                 self_infserver_addr=FLAGS.self_infserver_addr or None,

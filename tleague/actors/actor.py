@@ -33,7 +33,8 @@ class Actor(BaseActor):
   agents[0] will be pushed to the learner.
   """
   def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, age_cls,
-               data_type, policy_config=None, learner_addr=None, unroll_length=32,
+               data_type, policy_config=None, distill_policy_config=None,
+               learner_addr=None, unroll_length=32,
                update_model_freq=32, n_v=1, verbose=0, rwd_shape=True,
                log_interval_steps=51, distillation=False, replay_dir=None,
                self_infserver_addr=None, distill_infserver_addr=None,
@@ -116,10 +117,10 @@ class Actor(BaseActor):
     if self._post_process_data:
       ob_space, ac_space = self._post_process_data(ob_space, ac_space)
     if self.distillation:
-      policy_config['use_self_fed_heads'] = False
+      distill_policy_config['use_self_fed_heads'] = False
       self.distill_agent = \
         age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name="distill",
-                policy_config=policy_config, use_gpu_id=-1,
+                policy_config=distill_policy_config, use_gpu_id=-1,
                 infserver_addr=distill_infserver_addr, compress=compress)
     self._replay_dir = replay_dir
     self._parallel = run_parallel.RunParallel()

@@ -73,7 +73,8 @@ class PGLearner(BaseLearner):
     config.gpu_options.allow_growth = True
     config.gpu_options.visible_device_list = str(gpu_id)
     self.sess = tf.Session(config=config)
-    self.rank = hvd.rank() if has_hvd else 0
+    self.use_hvd = has_hvd and hvd.size() > 1
+    self.rank = hvd.rank() if self.use_hvd else 0
 
     # Prepare dataset
     ds = data_type(ob_space, ac_space, self.n_v, use_lstm=self.rnn,
@@ -129,7 +130,7 @@ class PGLearner(BaseLearner):
       else:
         model = create_policy(input_data, net_config)
       loss, vf_loss, losses = self.build_loss(model, input_data)
-    if has_hvd:
+    if self.use_hvd:
       self.losses = [hvd.allreduce(loss) for loss in losses]
     else:
       self.losses = list(losses)
@@ -151,7 +152,7 @@ class PGLearner(BaseLearner):
         self.burn_in_trainer = tf.compat.v1.train.experimental.enable_mixed_precision_graph_rewrite(self.burn_in_trainer)
       except:
         logger.warn("using tf mixed_precision requires tf version>=1.15.")
-    if has_hvd:
+    if self.use_hvd:
       self.trainer = hvd.DistributedOptimizer(
         self.trainer, sparse_as_dense=use_sparse_as_dense)
       self.burn_in_trainer = hvd.DistributedOptimizer(
@@ -171,15 +172,15 @@ class PGLearner(BaseLearner):
     self._train_batch = self.trainer.apply_gradients(grads_and_vars)
     self._burn_in = self.burn_in_trainer.apply_gradients(grads_and_vars_vf)
     self.loss_endpoints_names = model.loss.loss_endpoints.keys()
-    if has_hvd:
+    if self.use_hvd:
       barrier_op = hvd.allreduce(tf.Variable(0.))
       broadcast_op = hvd.broadcast_global_variables(0)
     tf.global_variables_initializer().run(session=self.sess)
     self._build_ops()
     self.sess.graph.finalize()
 
-    self.barrier = lambda : self.sess.run(barrier_op) if has_hvd else None
-    self.broadcast = lambda : self.sess.run(broadcast_op) if has_hvd else None
+    self.barrier = lambda: self.sess.run(barrier_op) if self.use_hvd else None
+    self.broadcast = lambda: self.sess.run(broadcast_op) if self.use_hvd else None
     self.broadcast()
     # logging stuff
     format_strs = (['stdout', 'log', 'tensorboard', 'csv'] if self.rank == 0
@@ -235,7 +236,7 @@ class PGLearner(BaseLearner):
       self._need_burn_in = False
 
     self.barrier()
-    nbatch = self.batch_size * hvd.size() if has_hvd else self.batch_size
+    nbatch = self.batch_size * hvd.size() if self.use_hvd else self.batch_size
     self.should_push_model = (self.rank == 0)
     self._run_train_loop(nbatch)
 

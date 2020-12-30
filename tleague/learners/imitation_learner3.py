@@ -59,7 +59,8 @@ class ImitationLearner3(object):
                use_sparse_as_dense=False, enable_validation=True,
                post_process_data=None):
     assert len(ports) == 2
-    self.rank = 0 if not has_hvd else hvd.rank()
+    self.use_hvd = has_hvd and hvd.size() > 1
+    self.rank = 0 if not self.use_hvd else hvd.rank()
     self.model_key = 'IL-model'
     self.pub_interval = pub_interval
     self.rnn = (False if 'use_lstm' not in policy_config
@@ -149,7 +150,7 @@ class ImitationLearner3(object):
         optimizer = tf.compat.v1.train.experimental.enable_mixed_precision_graph_rewrite(optimizer)
       except:
         logger.warn("using tf mixed_precision requires tf version>=1.15.")
-    if has_hvd:
+    if self.use_hvd:
       optimizer = hvd.DistributedOptimizer(optimizer,
                                            sparse_as_dense=use_sparse_as_dense)
       barrier_op = hvd.allreduce(tf.Variable(0.))
@@ -232,10 +233,10 @@ class ImitationLearner3(object):
         logger.log(v)
       tf.variables_initializer(var_list).run(session=self._sess)
 
-    if has_hvd:
+    if self.use_hvd:
       hvd.broadcast_global_variables(0).run(session=self._sess)
 
-    _allreduce = lambda x: x if not has_hvd else hvd.allreduce(x)
+    _allreduce = lambda x: x if not self.use_hvd else hvd.allreduce(x)
     train_loss_aggregated = _allreduce(train_loss)
     train_other_loss_names = model.loss.loss_endpoints.keys()
     train_other_losses_aggregated = [
@@ -300,7 +301,7 @@ class ImitationLearner3(object):
           # TODO(pengsun): completely disable validation when not using
           while not self.data_pool.ready_for_val:
             time.sleep(5)
-          if has_hvd:
+          if self.use_hvd:
             self.barrier()  # synchronize across all hvd learners
           # do validation and logging
           t = time.time()
@@ -314,7 +315,7 @@ class ImitationLearner3(object):
 
         while not self.data_pool.ready_for_train:
           time.sleep(5)
-        if has_hvd:
+        if self.use_hvd:
           self.barrier()  # synchronize across all hvd learners
       # publish stuff (publish NN model)
       if i % self.pub_interval == 0 and self.should_push_model:

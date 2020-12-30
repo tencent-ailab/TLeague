@@ -1,8 +1,8 @@
 import pickle
 import time
 import os
-from queue import Queue
-from threading import Thread
+import uuid
+from multiprocessing import Process
 
 import zmq
 import tensorflow as tf
@@ -14,20 +14,49 @@ from tleague.league_mgrs.league_mgr_apis import LeagueMgrAPIs
 from tleague.utils.io import TensorZipper
 
 
+def rep_server(port, pull_ep, push_ep):
+  zmq_context = zmq.Context()
+  rep_socket = zmq_context.socket(zmq.ROUTER)
+  rep_socket.bind("tcp://*:%s" % port)
+  pull_socket = zmq_context.socket(zmq.PULL)
+  # pull_socket.setsockopt(zmq.RCVHWM, 1)
+  pull_socket.bind(pull_ep)
+  push_socket = zmq_context.socket(zmq.PUSH)
+  # push_socket.setsockopt(zmq.SNDHWM, 1)
+  push_socket.bind(push_ep)
+  poll = zmq.Poller()
+  poll.register(rep_socket, zmq.POLLIN)
+  poll.register(pull_socket, zmq.POLLIN)
+  while True:
+    socks = dict(poll.poll())
+    if socks.get(rep_socket) == zmq.POLLIN:
+      msg = rep_socket.recv_multipart(copy=False)
+      push_socket.send_multipart(msg)
+    else:
+      ids, outputs = pull_socket.recv_pyobj()
+      for data_id, output in zip(ids, outputs):
+        rep_socket.send_multipart([data_id, b'', pickle.dumps(output)])
+
+
 class InferDataServer(object):
 
   def __init__(self, port, batch_size, ds, batch_worker_num=4,
                use_gpu=True, compress=False):
     self._zmq_context = zmq.Context()
-    self._rep_socket = self._zmq_context.socket(zmq.ROUTER)
-    self._rep_socket.bind("tcp://*:%s" % port)
+    # push reply to rep_ep, pull request from req_ep
+    self.rep_ep = "ipc:///tmp/" + str(uuid.uuid1())[:8]
+    self.req_ep = "ipc:///tmp/" + str(uuid.uuid1())[:8]
+    self._rep_server_process = Process(target=rep_server,
+                                       args=(port, self.rep_ep, self.req_ep),
+                                       daemon=True)
+    self._rep_server_process.start()
+    self._reply_socket = self._zmq_context.socket(zmq.PUSH)
+    self._reply_socket.setsockopt(zmq.SNDHWM, 1)
+    self._reply_socket.connect(self.rep_ep)
     self._batch_size = batch_size
     self._compress = compress
-    self._data_queue = Queue(batch_size) # data from actor
-    self._ready = False
-    self._response_queue = Queue()
-    self._pull_data_thread = Thread(target=self._pull_data, daemon=True)
-    self._pull_data_thread.start()
+    self._ready = True
+
     shapes, dtypes = list(zip(*ds.flatten_spec, ([], tf.string)))
     dataset = tf.data.Dataset.range(batch_worker_num).apply(
         tf.contrib.data.parallel_interleave(
@@ -35,7 +64,7 @@ class InferDataServer(object):
             self.data_generator, dtypes, shapes),
           cycle_length=batch_worker_num,
           sloppy=True,
-          buffer_output_elements=int(batch_size/batch_worker_num))).apply(
+          buffer_output_elements=1)).apply(
                   tf.contrib.data.batch_and_drop_remainder(batch_size))
     if use_gpu:
       prefetch_op = tf.contrib.data.prefetch_to_device(
@@ -49,40 +78,21 @@ class InferDataServer(object):
 
   @property
   def ready(self):
-    if not self._ready:
-      self._ready = self._data_queue.qsize() >= self._batch_size
     return self._ready
 
   def data_generator(self):
+    pull_socket = self._zmq_context.socket(zmq.PULL)
+    pull_socket.connect(self.req_ep)
     while True:
-      while True:
-        try:
-          msg = self._data_queue.get_nowait()
-          break
-        except:
-          time.sleep(0.01)
+      msg = pull_socket.recv_multipart()
       if self._compress:
         data = TensorZipper.decompress(msg[-1])
       else:
         data = pickle.loads(msg[-1])
-      yield data + (msg[0].bytes,)
-
-  def _pull_data(self):
-    while True:
-      # pull obs
-      try:
-        msg = self._rep_socket.recv_multipart(zmq.NOBLOCK, copy=False)
-        self._data_queue.put(msg)
-      except:
-        pass
-      # send response
-      while not self._response_queue.empty():
-        ids, outputs = self._response_queue.get()
-        for data_id, output in zip(ids, outputs):
-          self._rep_socket.send_multipart([data_id, b'', pickle.dumps(output)])
+      yield data + (msg[0],)
 
   def response(self, ids, outputs):
-    self._response_queue.put((ids, outputs))
+    self._reply_socket.send_pyobj((ids, outputs))
 
 class InfServer(object):
   def __init__(self, league_mgr_addr, model_pool_addrs, port, ds,

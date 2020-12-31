@@ -7,7 +7,7 @@ from setuptools import setup
 
 setup(
     name='TLeague',
-    version='1.0',
+    version='1.2',
     description='Tencent Distributed League for StarCraft-II',
     keywords='League, SC2',
     packages=[

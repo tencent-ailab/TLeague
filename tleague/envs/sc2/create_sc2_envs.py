@@ -8,8 +8,8 @@ from pysc2.env import sc2_env
 from arena.env.sc2_base_env import SC2BaseEnv
 from arena.interfaces.interface import Interface
 from arena.env.env_int_wrapper import EnvIntWrapper, SC2EnvIntWrapper
-from arena.wrappers.basic_env_wrapper import VecRwd
-from arena.wrappers.basic_env_wrapper import EarlyTerminate
+from arena.wrappers.sc2_wrapper import VecRwd
+from arena.wrappers.sc2_wrapper import EarlyTerminate
 from arena.utils.spaces import NoneSpace
 from arena.wrappers.sc2stat_wrapper import StatAllAction
 from arena.wrappers.sc2stat_wrapper import StatZStatFn
@@ -385,7 +385,7 @@ def create_sc2full_formal_env(inter_fun,
     env = VecRwd(env, append=True)
   if use_trt:
     # install Tower-Rush-Trick env wrapper
-    from arena.wrappers.basic_env_wrapper import OppoTRTNoOut
+    from arena.wrappers.sc2_wrapper import OppoTRTNoOut
     env = OppoTRTNoOut(env)
 
   # parse interface config

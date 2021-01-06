@@ -15,7 +15,7 @@ from tleague.model_pools.model import Model
 
 
 class ModelPoolAPIs(object):
-  
+
   def __init__(self, model_pool_addrs):
     self._zmq_context = zmq.Context()
     self._zmq_context.setsockopt(zmq.TCP_KEEPALIVE, 1)
@@ -37,96 +37,41 @@ class ModelPoolAPIs(object):
   def check_server_set_up(self):
     for _ in self.model_pool_addrs:
       self.pull_keys()  # zmq request server in fair fashion
-  
-  def pull_model(self, key):
+
+  def request(self, req):
     self._req_lock.acquire()
     while True:
       try:
-        self._req_socket.send_string("model", zmq.SNDMORE)
-        self._req_socket.send_string(key)
-        model = self._req_socket.recv_pyobj()
-        if not isinstance(model, ModelPoolErroMsg):
+        for msg in req[0:-1]:
+          self._req_socket.send_string(msg, zmq.SNDMORE)
+        self._req_socket.send_string(req[-1])
+        ret = self._req_socket.recv_pyobj()
+        if not isinstance(ret, ModelPoolErroMsg):
           break
         else:
-          logger.log(model.msg)  # model isinstance ModelPoolErroMsg
+          logger.log(ret.msg)  # ret isinstance ModelPoolErroMsg
         time.sleep(2)
-      except Exception as e:
-        print("ModelPoolAPIs crushed on pull_model {},"
-              " the exception:\n{}".format(key, e))
+      except BaseException as e:
+        logger.error("ModelPoolAPIs may crushed on request {},"
+                     " the exception:\n{}".format(req, e))
+        raise e
     self._req_lock.release()
-    return model
+    return ret
+
+  def pull_model(self, key):
+    return self.request(["model", key])
 
   def pull_keys(self):
-    self._req_lock.acquire()
-    while True:
-      try:
-        self._req_socket.send_string("keys")
-        keys = self._req_socket.recv_pyobj()
-        if not isinstance(keys, ModelPoolErroMsg):
-          break
-        else:
-          logger.log(keys.msg)  # keys isinstance ModelPoolErroMsg
-        time.sleep(2)
-      except Exception as e:
-        print("ModelPoolAPIs crushed on pull_keys,"
-              " the exception:\n{}".format(e))
-    self._req_lock.release()
-    return keys
+    return self.request(["keys"])
 
   def pull_attr(self, attr, key):
-    self._req_lock.acquire()
-    while True:
-      try:
-        self._req_socket.send_string(attr, zmq.SNDMORE)
-        self._req_socket.send_string(key)
-        ret_attr = self._req_socket.recv_pyobj()
-        if not isinstance(ret_attr, ModelPoolErroMsg):
-          break
-        else:
-          logger.log(ret_attr.msg)  # ret_attr isinstance ModelPoolErroMsg
-        time.sleep(2)
-      except Exception as e:
-        print("ModelPoolAPIs crushed on pull_attr {} of model {},"
-              " the exception:\n{}".format(attr, key, e))
-    self._req_lock.release()
-    return ret_attr
+    return self.request([attr, key])
 
   def pull_all_attr(self, attr):
-    self._req_lock.acquire()
-    while True:
-      try:
-        self._req_socket.send_string('all_attr', zmq.SNDMORE)
-        self._req_socket.send_string(attr)
-        attrs = self._req_socket.recv_pyobj()
-        if not isinstance(attrs, ModelPoolErroMsg):
-          break
-        else:
-          logger.log(attrs.msg)  # attrs isinstance ModelPoolErroMsg
-        time.sleep(2)
-      except Exception as e:
-        print("ModelPoolAPIs crushed on pull_all_attr,"
-              " the exception:\n{}".format(e))
-    self._req_lock.release()
-    return attrs
+    return self.request(["all_attr", attr])
 
   def pull_learner_meta(self, key):
-    self._req_lock.acquire()
-    while True:
-      try:
-        self._req_socket.send_string('learner_meta', zmq.SNDMORE)
-        self._req_socket.send_string(key)
-        learner_meta = self._req_socket.recv_pyobj()
-        if not isinstance(learner_meta, ModelPoolErroMsg):
-          break
-        else:
-          # learner_meta isinstance ModelPoolErroMsg
-          logger.log(learner_meta.msg)
-        time.sleep(2)
-      except Exception as e:
-        print("ModelPoolAPIs crushed on pull_learner_meta {},"
-              " the exception:\n{}".format(key, e))
-    self._req_lock.release()
-    return learner_meta
+    return self.request(["learner_meta", key])
 
   def freeze_model(self, key):
     self._pub_lock.acquire()
@@ -139,8 +84,8 @@ class ModelPoolAPIs(object):
     self._pub_lock.acquire()
     self._pub_socket.send_string('model', zmq.SNDMORE)
     self._pub_socket.send_pyobj(
-        Model(model, hyperparam, key, createtime,
-              freezetime, updatetime))
+      Model(model, hyperparam, key, createtime,
+            freezetime, updatetime))
     if learner_meta is not None:
       self._pub_socket.send_string('learner_meta', zmq.SNDMORE)
       self._pub_socket.send_string(key, zmq.SNDMORE)

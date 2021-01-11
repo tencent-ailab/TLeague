@@ -51,10 +51,11 @@ class InfServerAPIs(object):
     return random.sample(self._req_sockets,1)[0]
 
   def _keep_dead_sockets(self, socks, data):
-    for dead_socket in self._dead_sockets:
-      if socks.get(dead_socket) == zmq.POLLIN:
-        self._req_sockets.append(dead_socket)
-        self._dead_sockets.pop(dead_socket)
+    sockets = [s for s in self._dead_sockets if socks.get(s) == zmq.POLLIN]
+    for s in sockets:
+      s.recv()
+      self._req_sockets.append(s)
+      self._dead_sockets.pop(s)
     # keep push data every 2*self.timeout to dead sockets
     long_dead_sockets = [socket for socket in self._dead_sockets
                          if (time.time() - self._dead_sockets[socket]
@@ -68,11 +69,17 @@ class InfServerAPIs(object):
     while ret is None:
       socket = self._get_random_socket(data)
       socket.send(data)
-      socks = dict(self.poll.poll(self.timeout))
-      if socks.get(socket) == zmq.POLLIN:
-        ret = socket.recv_pyobj()
-      else:
-        self._rebuild_socket(socket)
+      t0 = time.time()
+      while True:
+        t = 1000 * (time.time() - t0)
+        if t >= self.timeout:
+          s = self._rebuild_socket(socket)
+          s.send(data)
+          break
+        socks = dict(self.poll.poll(self.timeout - t))
+        if socks.get(socket) == zmq.POLLIN:
+          ret = socket.recv_pyobj()
+          break
       self._keep_dead_sockets(socks, data)
     return ret
 

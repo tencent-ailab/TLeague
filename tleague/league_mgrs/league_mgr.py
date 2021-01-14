@@ -4,6 +4,7 @@ from __future__ import print_function
 
 import os
 import pickle
+import time
 
 from tleague.hyperparam_mgr.hyperparam_mgr import HyperparamMgr
 from tleague.league_mgrs.base_league_mgr import BaseLeagueMgr
@@ -84,7 +85,8 @@ class LeagueMgr(BaseLeagueMgr):
               learner_id=game_mgr_config['lrn_id_list'][idx])
             logger.log('__init__: init model {} has been bound with '
                        'hyperparam {}'.format(key, hyperparam))
-          self._model_pool_apis.push_model(model, hyperparam, key)
+          t = time.strftime('%Y%m%d%H%M%S')
+          self._model_pool_apis.push_model(model, hyperparam, key, t, t, t)
         f.close()
         logger.log('__init__: done pushing {} to model pool'.format(key))
         self.game_mgr.add_player(p=key, parent_p=None)

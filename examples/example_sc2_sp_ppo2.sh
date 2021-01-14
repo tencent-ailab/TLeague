@@ -183,7 +183,6 @@ python3 -m tleague.bin.run_pg_actor \
   --env_config="${env_config}" \
   --interface_config="${interface_config}" \
   --replay_dir=./tmp_trmmyy_replays \
-  --agent=tleague.actors.agent.PGAgent \
   --policy="${policy}" \
   --policy_config="${self_policy_config}" \
   --log_interval_steps=3 \

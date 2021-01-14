@@ -109,7 +109,6 @@ python3 -m tleague.bin.run_pg_actor \
   --env="${env}" \
   --env_config="${env_config}" \
   --interface_config="${interface_config}" \
-  --agent=tleague.actors.agent.PPOAgent2 \
   --policy="${policy}" \
   --policy_config="${self_policy_config}" \
   --log_interval_steps=3 \

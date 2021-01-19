@@ -35,13 +35,12 @@ class ReplayMem(object):
     return len(self._data_queue)
 
   def reset(self):
+    self._ready = False
+    time.sleep(1)
     self._data_queue = []
     self._next_idx = 0
-    self._ready = False
 
   def ready_for_sample(self):
-    if not self._ready:
-      self._ready = len(self._data_queue) >= self._minimal_unroll
     return self._ready
 
   def append(self, data):  # append one unroll
@@ -49,8 +48,10 @@ class ReplayMem(object):
     self._next_idx = (self._next_idx + 1) % self._maxlen
     if self._decode:
       data = [self._decode_sample(d) for d in data]
-    if idx >= len(self._data_queue):
+    if self._maxlen > len(self._data_queue):
       self._data_queue.append(data)
+      if not self._ready:
+        self._ready = len(self._data_queue) >= self._minimal_unroll
     else:
       self._data_queue[idx] = data
 
@@ -111,7 +112,7 @@ class RMFromQueue(object):
       self._next_idx = (self._next_idx + 1) % self._maxlen
       if self._decode:
         data = [self._decode_sample(d) for d in data]
-      if idx >= len(self._data_queue):
+      if self._maxlen > len(self._data_queue):
         self._data_queue.append(data)
       else:
         self._data_queue[idx] = data
@@ -195,13 +196,13 @@ class ReplayMemMP(ReplayMem):
     self._start_subprocess()
 
   def ready_for_sample(self):
-    if not self._ready:
-      self._ready = self._len >= self._minimal_unroll
     return self._ready
 
   def append(self, data):
     if self._len < self._maxlen:
       self._len += 1
+      if not self._ready:
+        self._ready = self._len >= self._minimal_unroll
     msg = pickle.dumps(data)
     self._push_lock.acquire()
     self._push_socket.send(msg, copy=False)
@@ -230,10 +231,12 @@ class ImpSampReplayMem(ReplayMem):
     assert len(data) == len(weights)
     indx = self._next_idx
     self._next_idx = (self._next_idx + 1) % self._maxlen
-    if indx >= len(self._data_queue):
+    if self._maxlen > len(self._data_queue):
       self._unroll_weights.append(sum(weights))
       self._weights_queue.append(weights)
       self._data_queue.append(data)
+      if not self._ready:
+        self._ready = len(self._data_queue) >= self._minimal_unroll
     else:
       self._unroll_weights[indx] = sum(weights)
       self._weights_queue[indx] = weights

@@ -103,7 +103,7 @@ class InfServer(object):
     self._update_model_seconds = update_model_seconds
     self._log_seconds = log_seconds
     self._learner_id = learner_id
-    self._task_attr = task_attr
+    self._task_attr = task_attr.split('.')
     if model_key:
       self._league_mgr_apis = None
       self.is_rl = False
@@ -216,7 +216,9 @@ class InfServer(object):
       time.sleep(5)
       task = self._league_mgr_apis.query_learner_task(self._learner_id)
     self.last_model_key = self.model_key
-    self.model_key = getattr(task, self._task_attr)
+    self.model_key = task
+    for attr in self._task_attr:
+      self.model_key = getattr(self.model_key, attr)
     return task
 
   def _should_update_model(self, model, model_key):

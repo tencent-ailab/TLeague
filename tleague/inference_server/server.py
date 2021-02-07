@@ -95,14 +95,15 @@ class InferDataServer(object):
     self._reply_socket.send_pyobj((ids, outputs))
 
 class InfServer(object):
-  def __init__(self, league_mgr_addr, model_pool_addrs, port, ds,
-               batch_size, ob_space, ac_space, policy, outputs=['a'],
-               policy_config={}, gpu_id=0, compress=True,
-               batch_worker_num=4, update_model_seconds=60,
-               learner_id=None, log_seconds=60, model_key="", **kwargs):
+  def __init__(self, league_mgr_addr, model_pool_addrs, port, ds, batch_size,
+               ob_space, ac_space, policy, outputs=['a'], policy_config={},
+               gpu_id=0, compress=True, batch_worker_num=4,
+               update_model_seconds=60, learner_id=None, log_seconds=60,
+               model_key="", task_attr='model_key', **kwargs):
     self._update_model_seconds = update_model_seconds
     self._log_seconds = log_seconds
     self._learner_id = learner_id
+    self._task_attr = task_attr
     if model_key:
       self._league_mgr_apis = None
       self.is_rl = False
@@ -215,7 +216,7 @@ class InfServer(object):
       time.sleep(5)
       task = self._league_mgr_apis.query_learner_task(self._learner_id)
     self.last_model_key = self.model_key
-    self.model_key = task.model_key
+    self.model_key = getattr(task, self._task_attr)
     return task
 
   def _should_update_model(self, model, model_key):

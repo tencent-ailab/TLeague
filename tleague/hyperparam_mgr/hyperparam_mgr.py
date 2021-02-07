@@ -58,7 +58,7 @@ class HyperparamMgr(object):
       else:
         new_hyperparam = copy.deepcopy(hyperparam)
         if is_mutate:
-          new_hyperparam.mutate()
+          new_hyperparam.mutate(copy_from_model_key=copy_from_model_key)
       return copy.deepcopy(new_hyperparam)
 
   def _default_hyperparam(self, learner_id):

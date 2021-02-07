@@ -9,7 +9,7 @@ class Hyperparam(object):
     for k in kwargs:
       setattr(self, k, kwargs[k])
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     pass
 
 
@@ -25,7 +25,7 @@ class MutableHyperparam(Hyperparam):
     self.reward_weights_disturb = reward_weights_disturb
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     for i in range(len(self.reward_weights)):
       delta = random.choice([-1.0, 1.0]) * self.reward_weights_disturb
       self.reward_weights[i] += delta
@@ -93,7 +93,7 @@ class MutableHyperparamRandPredefSC2V1(Hyperparam):
     self.reward_weights = self.available_weights[initial_ind]
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     self.reward_weights = random.choice(self.available_weights)
 
   def __str__(self):
@@ -154,7 +154,7 @@ class MutableHyperparamRandPredefSC2V2(Hyperparam):
     self.reward_weights = self._available_weights[initial_ind]
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     if random.random() < self._perturb_prob:
       self.reward_weights = random.choice(self._available_weights)
       self.sigma = random.choice(self._available_sigma)
@@ -189,7 +189,7 @@ class MutableHyperparamRandMaxKOnes(Hyperparam):
     self.reward_weights = [0.0] * self.reward_len
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     u = 0.005
     M = random.randint(1, self.K)
     ones_ind = random.sample(range(self.reward_len - 1), M)
@@ -248,7 +248,7 @@ class MutableHyperparamRandPerturb(Hyperparam):
     self._lockup_weights_one()
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     if random.random() < self._perturb_prob:
       # perturb reward weights by a -/+ percentage
       ratios = [np.random.uniform(1 - self._weight_perturb_percentage,
@@ -301,7 +301,7 @@ class MutableHyperparamRandPredefSigma(Hyperparam):
     self._perturb_prob = perturb_prob
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     if random.random() < self._perturb_prob:
       # perturb sigma by random selection
       self.sigma = random.choice(self._available_sigma)
@@ -350,7 +350,7 @@ class MutableHyperparamPartialPerturb(Hyperparam):
       self.reward_weights[ind] = scale * _loguniform(init_weight_low, init_weight_high)
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     if random.random() < self._perturb_prob:
       # perturb reward weights by a -/+ percentage
       for ind in self._perturb_ind:
@@ -396,7 +396,7 @@ class MutableHyperparamPreDefPartialPerturb(Hyperparam):
       self.reward_weights[ind] = self.reward_weights[ind] * reward_scale
     super().__init__(**kwargs)
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     if random.random() < self._perturb_prob:
       # perturb reward weights by a -/+ percentage
       for ind in self._perturb_ind:
@@ -596,7 +596,7 @@ class DiscreteDistribHyperparamV2(ConstantHyperparam):
     self.init_model_key = self.lrn_id_to_init_model_key[self.learner_id]
     self.distill_model_key = self.lrn_id_to_distill_model_key[self.learner_id]
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     self.reward_weights = self._mutate_reward_weights()
 
   def _mutate_reward_weights(self):
@@ -693,8 +693,10 @@ class DiscreteDistribHyperparamV3(ConstantHyperparam):
     self.init_model_key = self.lrn_id_to_init_model_key[self.learner_id]
     self.distill_model_key = self.lrn_id_to_distill_model_key[self.learner_id]
 
-  def mutate(self):
+  def mutate(self, copy_from_model_key=None, **kwargs):
     self.reward_weights = self._mutate_reward_weights()
+    if copy_from_model_key is not None:
+      self.distill_model_key = copy_from_model_key
 
   def _mutate_reward_weights(self):
     # check whether to zero it for each reward_weights element
@@ -745,7 +747,7 @@ class LpLen(Hyperparam):
     else:
       return 0
 
-  def mutate(self):
+  def mutate(self, **kwargs):
     super().mutate()
     self.total_timesteps = int(self.max_total_timesteps *
                                (1 - (1 - self.minimal_lp_len_ratio) * random.random()))

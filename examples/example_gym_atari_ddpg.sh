@@ -10,7 +10,7 @@ game_mgr_config="{
   'max_n_players': 1}"
 mutable_hyperparam_type=ConstantHyperparam
 hyperparam_config_name="{ \
-  'learning_rate': 0.0001, \
+  'learning_rate': 0.001, \
   'lam': 0.9, \
   'gamma': 0.9, \
 }" && \
@@ -32,8 +32,8 @@ policy_config="{ \
   'weight_decay': 0.00002, \
 }" && \
 self_policy_config="{ \
-  'batch_size': 2, \
-  'rollout_len': 1, \
+  'batch_size': 256, \
+  'rollout_len': 8, \
   'use_xla': False, \
   'test': True, \
   'use_loss_type': 'none', \
@@ -49,10 +49,10 @@ self_policy_config="{ \
   'sync_statistics': 'none', \
 }" && \
 learner_config="{ \
-  'vf_coef': 0.5, \
+  'vf_coef': 2, \
   'max_grad_norm': 0.5, \
   'distill_coef': 0.0, \
-  'ent_coef': 0.001 \
+  'ent_coef': -0.000001 \
 }" && \
 env_config="{}" && \
 interface_config="{}"
@@ -93,12 +93,12 @@ python3 -m tleague.bin.run_pg_learner \
   --model_pool_addrs=localhost:10003:10004 \
   --league_mgr_addr=localhost:20005 \
   --learner_id=lrngrp0 \
-  --unroll_length=2 \
-  --rollout_length=2 \
-  --batch_size=2 \
-  --rm_size=2 \
-  --pub_interval=5 \
-  --log_interval=4 \
+  --unroll_length=128 \
+  --rollout_length=8 \
+  --batch_size=256 \
+  --rm_size=10240 \
+  --pub_interval=100 \
+  --log_interval=100 \
   --total_timesteps=200000000 \
   --burn_in_timesteps=12 \
   --env="${env}" \
@@ -117,8 +117,8 @@ python3 -m tleague.bin.run_pg_actor \
   --model_pool_addrs=localhost:10003:10004 \
   --league_mgr_addr=localhost:20005 \
   --learner_addr=localhost:30003:30004 \
-  --unroll_length=2 \
-  --update_model_freq=32 \
+  --unroll_length=128 \
+  --update_model_freq=320 \
   --env="${env}" \
   --env_config="${env_config}" \
   --interface_config="${interface_config}" \
@@ -128,6 +128,6 @@ python3 -m tleague.bin.run_pg_actor \
   --n_v=1 \
   --rwd_shape \
   --nodistillation \
-  --verbose=0 \
+  --verbose=40 \
   --type=DDPG
 fi

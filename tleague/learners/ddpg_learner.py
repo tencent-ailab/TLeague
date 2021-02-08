@@ -14,7 +14,7 @@ from tleague.utils.data_structure import DDPGData
 class DDPGLearner(PGLearner):
   """Learner for Vtrace."""
   def __init__(self, league_mgr_addr, model_pool_addrs, learner_ports, rm_size,
-               batch_size, ob_space, ac_space, policy, gpu_id, tau=0.001,
+               batch_size, ob_space, ac_space, policy, gpu_id, tau=0.01,
                **kwargs):
     self.tau = tau
     super(DDPGLearner, self).__init__(
@@ -78,3 +78,19 @@ class DDPGLearner(PGLearner):
     self.train_batch = train_batch
     self.burn_in = burn_in
     self.sess.run(init_updates)
+
+  def _build_train_op(self):
+    grads_and_vars = self.trainer.compute_gradients(
+      self.loss, [p for p in self.params if p not in self.params_vf])
+    grads_and_vars += self.trainer.compute_gradients(self.vf_loss,
+                                                     self.params_vf)
+    grads_and_vars_vf = self.burn_in_trainer.compute_gradients(self.vf_loss,
+                                                               self.params_vf)
+
+    grads_and_vars, self.clip_grad_norm, self.nonclip_grad_norm = self.clip_grads_vars(
+      grads_and_vars, self.clip_vars, self.max_grad_norm)
+    grads_and_vars_vf, self.clip_grad_norm_vf, self.nonclip_grad_norm_vf = self.clip_grads_vars(
+      grads_and_vars_vf, self.clip_vars, self.max_grad_norm)
+
+    self._train_batch = self.trainer.apply_gradients(grads_and_vars)
+    self._burn_in = self.burn_in_trainer.apply_gradients(grads_and_vars_vf)

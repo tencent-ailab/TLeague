@@ -28,7 +28,9 @@ def create_gym_atari_env(arena_id):
 
   env_name = arena_id.strip('gym_')
   env = gym.make(env_name)
-  env = ScaledFloatFrame(env)
+  from gym.envs import atari
+  if isinstance(env.env, atari.atari_env.AtariEnv):
+    env = ScaledFloatFrame(env)
   env = SingleAgentWrapper(env)
   return env
 

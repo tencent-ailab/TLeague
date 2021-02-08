@@ -64,8 +64,8 @@ class PGLearner(BaseLearner):
     # TODO(pengsun): fix the policy_config default value
     self._init_const(total_timesteps, burn_in_timesteps, batch_size,
                      unroll_length, rwd_shape, ent_coef, vf_coef,
-                     pub_interval, log_interval, save_interval,
-                     policy, distill_coef, policy_config, rollout_length)
+                     pub_interval, log_interval, save_interval, policy,
+                     distill_coef, policy_config, rollout_length, max_grad_norm)
 
     # allow_soft_placement=True can fix issue when some op cannot be defined on
     # GPUs for tf-1.8.0; tf-1.13.1 does not have this issue
@@ -123,17 +123,17 @@ class PGLearner(BaseLearner):
         try:
           # Use tensorflow's accerlated linear algebra compile method
           with tf.xla.experimental.jit_scope(True):
-            model = create_policy(input_data, net_config)
+            self.model = create_policy(input_data, net_config)
         except:
           logger.log("WARNING: using tf.xla requires tf version>=1.15.")
-          model = create_policy(input_data, net_config)
+          self.model = create_policy(input_data, net_config)
       else:
-        model = create_policy(input_data, net_config)
-      loss, vf_loss, losses = self.build_loss(model, input_data)
+        self.model = create_policy(input_data, net_config)
+      self.build_loss(self.model, input_data)
     if self.use_hvd:
-      self.losses = [hvd.allreduce(loss) for loss in losses]
+      self.losses = [hvd.allreduce(loss) for loss in self.losses]
     else:
-      self.losses = list(losses)
+      self.losses = list(self.losses)
     self.params = tf.trainable_variables(scope='model')
     self.params_vf = tf.trainable_variables(scope='model/vf')
     self.param_norm = tf.global_norm(self.params)
@@ -157,21 +157,14 @@ class PGLearner(BaseLearner):
         self.trainer, sparse_as_dense=use_sparse_as_dense)
       self.burn_in_trainer = hvd.DistributedOptimizer(
         self.burn_in_trainer, sparse_as_dense=use_sparse_as_dense)
-    grads_and_vars = self.trainer.compute_gradients(loss, self.params)
-    grads_and_vars_vf = self.burn_in_trainer.compute_gradients(vf_loss,
-                                                               self.params_vf)
-    if 'use_lstm' in policy_config and policy_config['use_lstm']:                                                          
-      clip_vars = model.vars.lstm_vars
-    else:
-      clip_vars = []
-    grads_and_vars, self.clip_grad_norm, self.nonclip_grad_norm = self.clip_grads_vars(
-      grads_and_vars, clip_vars, max_grad_norm)
-    grads_and_vars_vf, self.clip_grad_norm_vf, self.nonclip_grad_norm_vf = self.clip_grads_vars(
-      grads_and_vars_vf, clip_vars, max_grad_norm)
 
-    self._train_batch = self.trainer.apply_gradients(grads_and_vars)
-    self._burn_in = self.burn_in_trainer.apply_gradients(grads_and_vars_vf)
-    self.loss_endpoints_names = model.loss.loss_endpoints.keys()
+    if 'use_lstm' in policy_config and policy_config['use_lstm']:
+      self.clip_vars = self.model.vars.lstm_vars
+    else:
+      self.clip_vars = []
+    self._build_train_op()
+
+    self.loss_endpoints_names = self.model.loss.loss_endpoints.keys()
     if self.use_hvd:
       barrier_op = hvd.allreduce(tf.Variable(0.))
       broadcast_op = hvd.broadcast_global_variables(0)
@@ -189,6 +182,19 @@ class PGLearner(BaseLearner):
       dir='training_log/{}rank{}'.format(self._learner_id, self.rank),
       format_strs=format_strs
     )
+
+  def _build_train_op(self):
+    grads_and_vars = self.trainer.compute_gradients(self.loss, self.params)
+    grads_and_vars_vf = self.burn_in_trainer.compute_gradients(self.vf_loss,
+                                                               self.params_vf)
+
+    grads_and_vars, self.clip_grad_norm, self.nonclip_grad_norm = self.clip_grads_vars(
+      grads_and_vars, self.clip_vars, self.max_grad_norm)
+    grads_and_vars_vf, self.clip_grad_norm_vf, self.nonclip_grad_norm_vf = self.clip_grads_vars(
+      grads_and_vars_vf, self.clip_vars, self.max_grad_norm)
+
+    self._train_batch = self.trainer.apply_gradients(grads_and_vars)
+    self._burn_in = self.burn_in_trainer.apply_gradients(grads_and_vars_vf)
 
   def run(self):
     logger.log('HvdPPOLearner: entering run()')
@@ -243,8 +249,8 @@ class PGLearner(BaseLearner):
 
   def _init_const(self, total_timesteps, burn_in_timesteps, batch_size,
                   unroll_length, rwd_shape, ent_coef, vf_coef,
-                  pub_interval, log_interval, save_interval,
-                  policy, distill_coef, policy_config, rollout_length):
+                  pub_interval, log_interval, save_interval, policy,
+                  distill_coef, policy_config, rollout_length, max_grad_norm):
     self.total_timesteps = total_timesteps
     self.burn_in_timesteps = burn_in_timesteps
     self._train_batch = []
@@ -268,6 +274,7 @@ class PGLearner(BaseLearner):
     policy_config['rollout_len'] = rollout_length
     if self.rnn:
       self.hs_len = policy_config['hs_len']
+    self.max_grad_norm = max_grad_norm
 
   def _build_ops(self):
     ## other useful operators
@@ -521,12 +528,12 @@ class PGLearner(BaseLearner):
       value_shape = model.loss.value_loss.shape
       assert len(value_shape) == 1 and value_shape[0] == len(self.vf_coef)
       print('vf_coef: {}'.format(self.vf_coef))
-      value_loss = tf.reduce_sum(
+      self.vf_loss = tf.reduce_sum(
         model.loss.value_loss * tf.constant(self.vf_coef))
     else:
-      value_loss = tf.reduce_sum(model.loss.value_loss) * self.vf_coef
+      self.vf_loss = tf.reduce_sum(model.loss.value_loss) * self.vf_coef
     ep_loss = tf.constant(0, dtype=tf.float32)
     for loss_name, loss_coef in self.ep_loss_coef.items():
       ep_loss += model.loss.loss_endpoints[loss_name] * loss_coef
-    loss = (model.loss.pg_loss + value_loss - entropy + distill_loss + ep_loss)
-    return loss, value_loss, model.loss.loss_endpoints.values()
+    self.loss = (model.loss.pg_loss + self.vf_loss - entropy + distill_loss + ep_loss)
+    self.losses = model.loss.loss_endpoints.values()

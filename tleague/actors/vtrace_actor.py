@@ -65,7 +65,7 @@ class VtraceActor(Actor):
               data.append(other_vars['oppo_state'])
           data = self.ds.structure(data)
           data.r = reward
-          data.discount = 1.0
+          data.discount = (1 - done) * self._gamma
           # Notice: a new episode must starts with a valid obs, not None obs,
           # which is correct currently. Otherwise, mask will be incorrect since
           # it is decided by the last frame's done

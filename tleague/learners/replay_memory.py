@@ -4,6 +4,7 @@ import time
 import uuid
 import zmq
 import numpy as np
+from functools import partial
 from threading import Thread, Lock
 from tleague.utils.io import TensorZipper
 from multiprocessing import Process
@@ -131,7 +132,8 @@ class RMFromQueue(object):
         else:
           batch_data.extend([self._decode_sample(d)
                              for d in unroll[j:j + self._rollout_length]])
-      push_socket.send_pyobj(tuple(np.array(d) for d in zip(*batch_data)))
+      push_socket.send_multipart(
+        [pickle.dumps(np.array(d)) for d in zip(*batch_data)], copy=False)
 
   def _decode_sample(self, sample):
     return TensorZipper.decompress(sample)
@@ -209,7 +211,10 @@ class ReplayMemMP(ReplayMem):
     self._push_lock.release()
 
   def rollout_samplers(self):
-    return [s.recv_pyobj for s in self._pull_sockets]
+    def _recv(s):
+      msg = s.recv_multipart(copy=False)
+      return tuple(pickle.loads(m) for m in msg)
+    return [partial(_recv, s) for s in self._pull_sockets]
 
   def sample_rollout(self):
     return self._pull_sockets[0].recv_pyobj()

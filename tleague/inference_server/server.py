@@ -105,10 +105,15 @@ class InfServer(object):
     self._learner_id = learner_id
     self._task_attr = task_attr.split('.')
     if model_key:
+      # If model_key is given, this indicates the infserver works
+      # for a fixed model inference
       self._league_mgr_apis = None
       self.is_rl = False
       self.model_key = model_key
     else:
+      # If model_key is absent, this indicates an infserver
+      # that performs varying policy inference, and model_key will be
+      # assigned by querying league_mgr
       self._league_mgr_apis = LeagueMgrAPIs(league_mgr_addr)
       self.is_rl = True
       self.model_key = None
@@ -201,9 +206,9 @@ class InfServer(object):
 
   def _update_model(self):
     if self.is_rl:
-      if (self.model_key is None or
-          (self.model is not None and self.model.is_freezed())):
-        self._query_task()
+      # if (self.model_key is None or
+      #     (self.model is not None and self.model.is_freezed())):
+      self._query_task()
     if self._should_update_model(self.model, self.model_key):
       self.model = self._model_pool_apis.pull_model(self.model_key)
       self.load_model(self.model.model)

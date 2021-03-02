@@ -4,8 +4,8 @@
 
 role=$1
 # common args
-zstat_data_src=/Users/pengsun/code/tmp/replay_ds/rp1706-mv7-mmr6200-victory-selected-174
-#zstat_data_src=/Users/jcxiong/SC2/rp1522-mv-zstat-tmp-selected-2
+# zstat_data_src=/Users/pengsun/code/tmp/replay_ds/rp1706-mv7-mmr6200-victory-selected-174
+zstat_data_src=/Users/jcxiong/SC2/rp1522-mv-zstat-tmp-selected-2
 game_mgr_type=tleague.game_mgr.game_mgrs.SelfPlayGameMgr && \
 game_mgr_config="{}"  # null for SelfPlayGameMgr
 mutable_hyperparam_type=MutableHyperparam
@@ -156,7 +156,7 @@ python3 -m tleague.bin.run_pg_learner \
   --unroll_length=2 \
   --rollout_length=2 \
   --batch_size=4 \
-  --rm_size=20000 \
+  --rm_size=20 \
   --pub_interval=5 \
   --log_interval=4 \
   --total_timesteps=2000000 \

@@ -119,20 +119,15 @@ class SC2ZergZStatVecReward(RewardWrapper):
       split_indices = [len(BUILD_ORDER_OBJECT_CANDIDATES), -len(RESEARCH_ABILITY_CANDIDATES)]
     def _get_zstat(ob, prefix='Z_'):
       order_bt, boc_bt = None, None
-      if dict_space:
-        uc = np.split(ob[prefix + 'UNIT_COUNT'] > 0, split_indices)
-        order = ob[prefix + 'BUILD_ORDER']
-        boc = ob[prefix + 'BUILD_ORDER_COORD']
-        if version == 'v3':
-          order_bt = ob[prefix + 'BUILD_ORDER_BT']
-          boc_bt = ob[prefix + 'BUILD_ORDER_COORD_BT']
-      else:
-        uc = np.split(ob[15] > 0, split_indices)
-        order = ob[16]
-        boc = ob[17]
-        if version == 'v3':
-          order_bt = ob[18]
-          boc_bt = ob[19]
+      assert dict_space
+      uc = np.split(ob[prefix + 'UNIT_COUNT'] > 0, split_indices)
+      # UNIT_COUNT including the first Hatchery, only give reward if second Hatchery is built
+      uc[0][0] = ob[prefix + 'UNIT_COUNT'][0] > 1
+      order = ob[prefix + 'BUILD_ORDER']
+      boc = ob[prefix + 'BUILD_ORDER_COORD']
+      if version == 'v3':
+        order_bt = ob[prefix + 'BUILD_ORDER_BT']
+        boc_bt = ob[prefix + 'BUILD_ORDER_COORD_BT']
       return uc, order, boc, order_bt, boc_bt
     target_uc, target_order, target_boc, target_order_bt, target_boc_bt = _get_zstat(obs, 'Z_')
     SeqLevDist = SeqLevDist_with_Coord(target_order, target_boc)

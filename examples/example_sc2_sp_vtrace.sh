@@ -156,7 +156,7 @@ python3 -m tleague.bin.run_pg_learner \
   --unroll_length=2 \
   --rollout_length=2 \
   --batch_size=4 \
-  --rm_size=2 \
+  --rm_size=20000 \
   --pub_interval=5 \
   --log_interval=4 \
   --total_timesteps=2000000 \

@@ -109,7 +109,7 @@ class SC2ZergZStatVecReward(RewardWrapper):
   def reset(self, **kwargs):
     obs = super(SC2ZergZStatVecReward, self).reset(**kwargs)
     self._potential_func = self._create_potential_func(obs[0], self.dict_space, self.version)
-    self._last_potential = self._potential_func(self.unwrapped._obs[0], obs, False)
+    self._last_potential = self._potential_func(self.unwrapped._obs[0], obs[0], False)
     return obs
 
   @staticmethod
@@ -139,9 +139,9 @@ class SC2ZergZStatVecReward(RewardWrapper):
     if version == 'v3':
       SeqLevDist_bt = SeqLevDist_with_Coord(target_order_bt, target_boc_bt)
     use_zstat = np.sum(target_order) > 0
-    def potential_func(raw_pb, ob, win):
+    def potential_func(raw_pb, cur_ob, win):
       if use_zstat:
-        uc, order, boc, order_bt, boc_bt = _get_zstat(obs, 'IMM_')
+        uc, order, boc, order_bt, boc_bt = _get_zstat(cur_ob, 'IMM_')
         d_order = [- SeqLevDist.lev_dist(order, boc) / float(target_order.shape[0])]
         # negative Hamming Distance as potential for binary unit count
         d_uc = [ - sum(u != target_u) / float(len(target_u)) for u, target_u in zip(uc, target_uc)]
@@ -160,21 +160,25 @@ class SC2ZergZStatVecReward(RewardWrapper):
 
   def step(self, actions):
     obs, rwd, done, info = self.env.step(actions)
-    win = done and (rwd[0] > 0) and self.compensate_win
-    potential = self._potential_func(self.unwrapped._obs[0], obs, win)
-    game_loop = self.unwrapped._obs[0].observation.game_loop
-    ratio = np.ones([self.rwd_dim])
-    if game_loop > 22.4 * 60 * 8:
-      ratio[-4:] *= 0.5
-    if game_loop > 22.4 * 60 * 16:
-      ratio[-4:] *= 0.5
-    if game_loop > 22.4 * 60 * 24:
-      ratio[-4:] = 0
-    r = [(p-lp) * rr for p, lp, rr in zip(potential, self._last_potential, ratio)]
-    self._last_potential = potential
-    rwd[0] = list(rwd[0]) + r if isinstance(rwd[0], (list, tuple)) else [rwd[0]] + r
+    if obs[0] is not None:
+      win = done and (rwd[0] > 0) and self.compensate_win
+      potential = self._potential_func(self.unwrapped._obs[0], obs[0], win)
+      game_loop = self.unwrapped._obs[0].observation.game_loop
+      ratio = np.ones([self.rwd_dim])
+      if game_loop > 22.4 * 60 * 8:
+        ratio[-4:] *= 0.5
+      if game_loop > 22.4 * 60 * 16:
+        ratio[-4:] *= 0.5
+      if game_loop > 22.4 * 60 * 24:
+        ratio[-4:] = 0
+      r = [(p-lp) * rr for p, lp, rr in zip(potential, self._last_potential, ratio)]
+      self._last_potential = potential
+      rwd[0] = list(rwd[0]) + r if isinstance(rwd[0], (list, tuple)) else [rwd[0]] + r
+    else:
+      rwd[0] = list(rwd[0]) + [0] * self.rwd_dim if isinstance(rwd[0], (list, tuple)) \
+        else [rwd[0]] + [0] * self.rwd_dim
     if len(rwd) == 2:
-      rwd[1] = list(rwd[1]) + [0] * self.rwd_dim if isinstance(rwd[1], (list, tuple))\
+      rwd[1] = list(rwd[1]) + [0] * self.rwd_dim if isinstance(rwd[1], (list, tuple)) \
         else [rwd[1]] + [0] * self.rwd_dim
     return obs, rwd, done, info
 

@@ -688,7 +688,7 @@ class DiscreteDistribHyperparamV3(ConstantHyperparam):
 
     # generate the concrete reward_weights
     # over-write the base class reward_weights
-    self._reward_weights_orig = self.lrn_id_to_reward_weights[self.learner_id]
+    # self._reward_weights_orig = self.lrn_id_to_reward_weights[self.learner_id]
     self.reward_weights = self._mutate_reward_weights()
     self.init_model_key = self.lrn_id_to_init_model_key[self.learner_id]
     self.distill_model_key = self.lrn_id_to_distill_model_key[self.learner_id]
@@ -703,7 +703,7 @@ class DiscreteDistribHyperparamV3(ConstantHyperparam):
     return [
       rw if random.random() < prob else 0.0  # activate it with activate_prob
       for rw, prob in zip(
-        self._reward_weights_orig,
+        self.lrn_id_to_reward_weights[self.learner_id],
         self.lrn_id_to_reward_weights_activate_prob[self.learner_id]
       )
     ]
@@ -723,7 +723,7 @@ class DiscreteDistribHyperparamV3(ConstantHyperparam):
       self.zeroing_prob
     )
     s_weight = 'rwd_weights: ' + _str_list(self.reward_weights)
-    s_weight_orig = 'rwd_weights_orig' + _str_list(self._reward_weights_orig)
+    s_weight_orig = 'rwd_weights_orig: ' + _str_list(self.lrn_id_to_reward_weights[self.learner_id])
     return type(self).__name__ + ': ' + ', '.join([s_nn, s_distrib, s_weight,
                                                    s_weight_orig])
 

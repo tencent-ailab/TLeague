@@ -234,10 +234,7 @@ class PGLearner(BaseLearner):
     if (self.last_model_key is None
         or self.last_model_key != self.task.parent_model_key):
       self._data_server.reset()
-      if self._lrn_period_count == 0:
-        self._need_burn_in = self.burn_in_timesteps > 0
-      else:
-        self._need_burn_in = True
+      self._need_burn_in = True
     else:
       self._need_burn_in = False
 
@@ -374,9 +371,10 @@ class PGLearner(BaseLearner):
     self.total_timesteps = getattr(self.task.hyperparam, 'total_timesteps',
                                    self.total_timesteps)
     burn_in_timesteps = 0
-    if self._need_burn_in:
-      burn_in_timesteps = getattr(self.task.hyperparam, 'burn_in_timesteps',
-                                  self.burn_in_timesteps)
+    if self._lrn_period_count == 0:
+      burn_in_timesteps = self.burn_in_timesteps
+    elif self._need_burn_in:
+      burn_in_timesteps = getattr(self.task.hyperparam, 'burn_in_timesteps', 0)
     nupdates_burn_in = int(burn_in_timesteps // nbatch)
     nupdates = nupdates_burn_in + int(self.total_timesteps // nbatch)
     mblossvals = []

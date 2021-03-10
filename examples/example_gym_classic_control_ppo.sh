@@ -122,6 +122,6 @@ python3 -m tleague.bin.run_pg_actor \
   --n_v=1 \
   --rwd_shape \
   --nodistillation \
-  --verbose=0 \
+  --verbose=40 \
   --type=PPO
 fi

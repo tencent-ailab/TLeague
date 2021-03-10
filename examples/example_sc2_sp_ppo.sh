@@ -4,8 +4,7 @@
 
 role=$1
 # common args
-zstat_data_src=/Users/pengsun/code/tmp/replay_ds/rp1706-mv7-mmr6200-victory-selected-174
-#zstat_data_src=/Users/jcxiong/SC2/rp1522-mv-zstat-tmp-selected-2 && \
+zstat_data_src=/Users/jcxiong/SC2/rp1522-mv-zstat-tmp-selected-2 && \
 game_mgr_type=tleague.game_mgr.ae_game_mgrs.AEMatchMakingGameMgr && \
 game_mgr_config="{
   'lrn_id_list': ['lrngrp0', 'lrngrp1', 'lrngrp2'],
@@ -132,7 +131,7 @@ echo "Running as ${role}"
 if [ $role == model_pool ]
 then
 # model pool
-python3 -m tleague.scripts.run_model_pool \
+python3 -m tleague.bin.run_model_pool \
   --ports 10003:10004 \
   --verbose 0
 fi
@@ -140,7 +139,7 @@ fi
 # league mgr
 if [ $role == league_mgr ]
 then
-python3 -m tleague.scripts.run_league_mgr \
+python3 -m tleague.bin.run_league_mgr \
   --port=20005 \
   --model_pool_addrs=localhost:10003:10004 \
   --game_mgr_type="${game_mgr_type}" \

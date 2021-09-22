@@ -32,7 +32,7 @@ def rep_server(port, pull_ep, push_ep):
     if socks.get(rep_socket) == zmq.POLLIN:
       msg = rep_socket.recv_multipart(copy=False)
       push_socket.send_multipart(msg)
-    else:
+    if socks.get(pull_socket) == zmq.POLLIN:
       ids, outputs = pull_socket.recv_pyobj()
       for data_id, output in zip(ids, outputs):
         rep_socket.send_multipart([data_id, b'', pickle.dumps(output)])

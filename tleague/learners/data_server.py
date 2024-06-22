@@ -1,5 +1,6 @@
 import pickle
 import time
+import numbers
 from threading import Thread, Lock
 from collections import deque
 from collections import Counter
@@ -18,7 +19,7 @@ class DataServer(object):
 
   Prepare batch data, prefetch using tf.data.Dataset"""
 
-  def __init__(self, data_getter, rm_size, unroll_length, batch_size,
+  def __init__(self, learner_ports, rm_size, unroll_length, batch_size,
                ds, batch_worker_num=4, pull_worker_num=2,
                gpu_id_list=(0,), prefetch_buffer_size=None,
                rollout_length=1, version='v1', decode=False,
@@ -28,7 +29,11 @@ class DataServer(object):
     self.version = version
     if self.version == 'v2':
       shapes = tuple([(batch_size,) + tuple(s) for s in shapes])
-    self._data_getter = data_getter
+    self._zmq_context = zmq.Context()
+    self._pull_socket = self._zmq_context.socket(zmq.PULL)
+    self._pull_socket.setsockopt(zmq.RCVHWM, 1)
+    self._pull_socket.bind("tcp://*:%s" % learner_ports[1])
+    self._pull_lock = Lock()
     self._model_id = None  # abandon the data from last task
     self._batch_size = batch_size
     self.dtypes = dtypes
@@ -37,6 +42,7 @@ class DataServer(object):
     self.aband_unroll_num = 0
     self._infos = deque(maxlen=max(100, log_infos_interval))
     self._log_infos_interval = log_infos_interval
+    self.info_stat = {}
     self._info_num = 0
     self._batch_worker_num = batch_worker_num
     self._mk_rm(rm_size, unroll_length, batch_size, rollout_length,
@@ -110,10 +116,12 @@ class DataServer(object):
     self._replay_mem.reset()
     self.unroll_num = 0
     self.aband_unroll_num = 0
-    time_wait = 5
 
-    while not self.ready_for_train:
-      time.sleep(time_wait)
+  def _data_getter(self):
+    self._pull_lock.acquire()
+    data = self._pull_socket.recv(copy=False)
+    self._pull_lock.release()
+    return pickle.loads(data)
 
   def _pull_data(self):
     while True:
@@ -136,16 +144,17 @@ class DataServer(object):
                    ', while current model is ' + self._model_id)
 
   def _print_infos(self):
-    # filter the zstat infos, can not average
+    # filter the zstat infos, which can not average
     filter = lambda d: dict([(_k, _v) for _k, _v in d.items()
-                             if _v is not None and not isinstance(_v, str)])
+                             if isinstance(_v, numbers.Number)])
     stat = Counter({})
-    for info in self._infos:
-      stat += Counter(filter(info))
+    for info in list(self._infos):
+      stat.update(Counter(filter(info)))
     num = float(len(self._infos))
     for k, v in stat.items():
       stat[k] = float(int(v/num * 100)) / 100.0  # two significant digits
-    logger.log(stat)
+    self.info_stat = stat
+    # logger.log(stat)
 
   def _data_generator(self, x):
     if self.version == 'v2':

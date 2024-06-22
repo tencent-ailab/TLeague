@@ -4,11 +4,9 @@ from __future__ import print_function
 
 import uuid
 from abc import abstractmethod
-from threading import Lock
 from threading import Thread
 
 import zmq
-import pickle
 from tleague.league_mgrs.league_mgr_apis import LeagueMgrAPIs
 from tleague.model_pools.model_pool_apis import ModelPoolAPIs
 
@@ -25,9 +23,6 @@ class BaseLearner(object):
     self._zmq_context = zmq.Context()
     self._rep_socket = self._zmq_context.socket(zmq.REP)
     self._rep_socket.bind("tcp://*:%s" % learner_ports[0])
-    self._pull_socket = self._zmq_context.socket(zmq.PULL)
-    self._pull_socket.setsockopt(zmq.RCVHWM, 1)
-    self._pull_socket.bind("tcp://*:%s" % learner_ports[1])
     self._message_thread = Thread(target=self._message_worker)
     self._message_thread.daemon = True
     self._message_thread.start()
@@ -38,7 +33,6 @@ class BaseLearner(object):
     self.model_key = None
     self.last_model_key = None
     self._lrn_period_count = 0  # learning period count
-    self._pull_lock = Lock()
 
   def run(self):
     while True:
@@ -74,12 +68,6 @@ class BaseLearner(object):
 
   def _finish_task(self):
     self._notify_task_end()
-
-  def _pull_data(self):
-    self._pull_lock.acquire()
-    data = self._pull_socket.recv(copy=False)
-    self._pull_lock.release()
-    return pickle.loads(data)
 
   def _message_worker(self):
     while True:

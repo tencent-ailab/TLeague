@@ -7,8 +7,8 @@ from setuptools import setup
 
 setup(
     name='TLeague',
-    version='1.3',
-    description='Tencent Distributed League for StarCraft-II',
+    version='1.4',
+    description='Tencent Distributed League for Multiagent Reinforcement Learning',
     keywords='League, SC2',
     packages=[
       'tleague',

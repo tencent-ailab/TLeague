@@ -10,6 +10,7 @@ from tleague.actors.ppo_actor import PPOActor
 from tleague.actors.ppo2_actor import PPO2Actor
 from tleague.actors.vtrace_actor import VtraceActor
 from tleague.actors.ddpg_actor import DDPGActor
+from tleague.actors.ppoher_actor import PPOHERActor
 from tleague.envs.create_envs import create_env
 from tleague.utils import read_config_dict
 from tleague.utils import import_module_or_data
@@ -27,7 +28,8 @@ flags.DEFINE_string("learner_addr", "localhost:10001:10002",
 flags.DEFINE_integer("unroll_length", 32, "unroll length")
 flags.DEFINE_integer("n_v", 1, "value length")
 flags.DEFINE_integer("update_model_freq", 32, "update model every n steps")
-flags.DEFINE_string("env", "sc2", "task env")
+flags.DEFINE_string("env", None, "task env, e.g., sc2")
+flags.DEFINE_string("outer_env", None, "envs that are not in TLeague")
 flags.DEFINE_string("env_config", "",
                     "python dict config used for env. "
                     "e.g., {'replay_dir': '/root/replays/ext471_zvz'}")
@@ -68,8 +70,14 @@ def main(_):
 
   env_config = read_config_dict(FLAGS.env_config)
   interface_config = read_config_dict(FLAGS.interface_config)
-  env = create_env(FLAGS.env, env_config=env_config,
-                   inter_config=interface_config)
+  if FLAGS.env is not None:
+    env = create_env(FLAGS.env, env_config=env_config,
+                     inter_config=interface_config)
+  elif FLAGS.outer_env is not None:
+    create_env_func = import_module_or_data(FLAGS.outer_env)
+    env = create_env_func(**env_config)
+  else:
+    raise NotImplementedError("No environment defined.")
   policy = import_module_or_data(FLAGS.policy)
   policy_config = read_config_dict(FLAGS.policy_config)
   distill_policy_config = read_config_dict(FLAGS.distill_policy_config)

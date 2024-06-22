@@ -14,18 +14,20 @@ if sys.version_info.major > 2:
 import joblib
 import numpy as np
 import tensorflow as tf
+
 try:
   import horovod.tensorflow as hvd
+
   has_hvd = True
 except:
   has_hvd = False
 
-from tensorflow.contrib.framework import nest
 from tleague.learners.base_learner import BaseLearner
-from tleague.learners.data_server import DataServer
-from tleague.learners.data_server_v3 import DataServer as DataServer_v3
+from tleague.learners.data_server_gail import DataServerGAIL
+from tleague.learners.data_server_v3 import DataServer
 from tleague.utils import logger
-from tleague.utils.data_structure import PGData, DistillData
+from tleague.utils.data_structure import DiscExpertData
+from tleague.utils.data_structure import DiscAgentData
 
 
 def as_func(obj):
@@ -36,43 +38,36 @@ def as_func(obj):
     return obj
 
 
-class PGLearner(BaseLearner):
-  """Base learner class for Policy Gradient series."""
+class GAILLearner(BaseLearner):
   def __init__(self, league_mgr_addr, model_pool_addrs, learner_ports,
-               rm_size, batch_size, ob_space, ac_space, policy, gpu_id,
-               policy_config={}, ent_coef=1e-2, distill_coef=1e-2,
-               vf_coef=0.5, max_grad_norm=0.5, rwd_shape=False,
-               pub_interval=500, log_interval=100, save_interval=0,
-               total_timesteps=5e7, burn_in_timesteps=0,
-               learner_id='', batch_worker_num=4, pull_worker_num=2, prefetch_buffer_size=2,
+               rm_size, batch_size, gpu_id,
+               agent_ob_space, agent_ac_space, expert_ob_space, expert_ac_space,
+               discriminator, discriminator_config, disc_grad_penalty_coef=0.0,
+               max_grad_norm=0.5, pub_interval=500, log_interval=100,
+               save_interval=0, total_timesteps=5e7, learner_id='',
+               batch_worker_num=4, prefetch_buffer_size=2,
                unroll_length=32, rollout_length=1, log_dir="",
                use_mixed_precision=False, use_sparse_as_dense=True,
                adam_beta1=0.9, adam_beta2=0.999, adam_eps=1e-5,
-               data_type=PGData, data_server_version='v1',
-               decode=False, log_infos_interval=20, ep_loss_coef=None,
+               log_infos_interval=20, ep_loss_coef=None,
+               data_path=None, expert_type='batch',
                **kwargs):
+
     if len(kwargs) > 0:
       for k in kwargs:
-        if data_type == DistillData and k == 'pure_distill_type':
-          continue
         warnings.warn('Unused args passed in Learner: {}'.format(k))
-    super(PGLearner, self).__init__(league_mgr_addr, model_pool_addrs,
-                                    learner_ports, learner_id)
-
+    super(GAILLearner, self).__init__(league_mgr_addr, model_pool_addrs,
+                                      learner_ports, learner_id)
     self.LR = tf.placeholder(tf.float32, [])
     """Learning Rate"""
-    self.CLIPRANGE = tf.placeholder(tf.float32, [])
-    """Learning Rate Clip Range"""
-    self.current_total_timesteps = 0
-    self.TOTALTIMESTEPS = tf.placeholder(tf.int64, [])
+
     self.ep_loss_coef = ep_loss_coef or {}
     """Coefficients for those losses from the endpoints."""
 
-    # TODO(pengsun): fix the policy_config default value
-    self._init_const(total_timesteps, burn_in_timesteps, batch_size,
-                     unroll_length, rwd_shape, ent_coef, vf_coef,
-                     pub_interval, log_interval, log_dir, save_interval, policy,
-                     distill_coef, policy_config, rollout_length, max_grad_norm)
+    self._init_const(total_timesteps, batch_size, unroll_length,
+                     pub_interval, log_interval, log_dir, save_interval,
+                     discriminator, disc_grad_penalty_coef,
+                     discriminator_config, rollout_length, max_grad_norm)
 
     # allow_soft_placement=True can fix issue when some op cannot be defined on
     # GPUs for tf-1.8.0; tf-1.13.1 does not have this issue
@@ -83,105 +78,105 @@ class PGLearner(BaseLearner):
     self.use_hvd = has_hvd and hvd.size() > 1
     self.rank = hvd.rank() if self.use_hvd else 0
 
-    # Prepare dataset
-    if data_type == DistillData:
-      assert 'pure_distill_type' in kwargs, \
-        'DistillLearner must be provided with pure_distill_type (ds)'
-      ds = data_type(ob_space, ac_space, self.n_v, use_lstm=self.rnn,
-                     hs_len=self.hs_len, distill_type=kwargs['pure_distill_type'])
-    else:
-      ds = data_type(ob_space, ac_space, self.n_v, use_lstm=self.rnn,
-                     hs_len=self.hs_len, distillation=self.distillation)
-    if data_server_version == 'v3':
-      self._data_server = DataServer_v3(learner_ports, rm_size,
-                                     unroll_length, batch_size, ds,
-                                     gpu_id_list=(0,),
-                                     batch_worker_num=batch_worker_num,
-                                     rollout_length=rollout_length,
-                                     prefetch_buffer_size=prefetch_buffer_size,
-                                     log_infos_interval=log_infos_interval)
-    else:
-      self._data_server = DataServer(learner_ports, rm_size,
-                                     unroll_length, batch_size, ds,
-                                     gpu_id_list=(0,),
-                                     batch_worker_num=batch_worker_num,
-                                     pull_worker_num=pull_worker_num,
-                                     rollout_length=rollout_length,
-                                     prefetch_buffer_size=prefetch_buffer_size,
-                                     version=data_server_version,
-                                     decode=decode,
-                                     log_infos_interval=log_infos_interval)
-
     # prepare net config
-    net_config = policy.net_config_cls(ob_space, ac_space, **policy_config)
-    net_config.total_timesteps = self.TOTALTIMESTEPS
-    net_config.clip_range = self.CLIPRANGE
-    if rwd_shape:
-      # make net_config.reward-shaping-weights a tf.placeholder so as to change
-      # it during training.
-      # NOTE: Assume there is reward_weights_shape in net_config
-      # TODO(pengsun): use NetInputsData instead of this quick-and-dirty hacking?
-      reward_weights_shape = net_config.reward_weights_shape
-      self.rwd_weights = tf.placeholder(tf.float32, reward_weights_shape)
-      net_config.reward_weights = self.rwd_weights
-    if hasattr(net_config, 'lam'):
-      # make net_config.lambda-for-td-lambda a tf.placeholder so as to change it
-      #  during training.
-      # TODO(pengsun): use NetInputsData instead of this quick-and-dirty hacking?
-      self.LAM = tf.placeholder(tf.float32, [])
-      net_config.lam = self.LAM
-    else:
-      self.LAM = None
+    net_config = discriminator.net_config_cls(agent_ob_space,
+                                              agent_ac_space,
+                                              **discriminator_config)
 
-    # build the policy net
+    # Prepare dataset
+    ds_agent = DiscAgentData(agent_ob_space, agent_ac_space)
+    if expert_type == 'batch':
+      # if use batch expert, the expert data are stored offline and the
+      # expert data server directly reads data from the files
+      ds_expert = DiscExpertData(net_config.n_feature)
+      self._data_server_agent = DataServer(
+        learner_ports, rm_size,
+        unroll_length, batch_size, ds_agent,
+        gpu_id_list=(0,),
+        batch_worker_num=batch_worker_num,
+        rollout_length=rollout_length,
+        prefetch_buffer_size=prefetch_buffer_size,
+        log_infos_interval=log_infos_interval)
+      self._data_server_expert = DataServerGAIL(
+        batch_size, ds_expert,
+        gpu_id_list=(0,),
+        batch_worker_num=batch_worker_num,
+        prefetch_buffer_size=prefetch_buffer_size,
+        data_path=data_path)
+    elif expert_type == 'online':
+      # for online expert, the data server needs to bind online expert actors
+      # the first port is for publish; others are for receiving
+      ds_expert = DiscAgentData(expert_ob_space, expert_ac_space)
+      agent_ports = learner_ports[0:1] + learner_ports[
+                                         1:(len(learner_ports) - 1) // 2 + 1]
+      expert_ports = learner_ports[0:1] + learner_ports[
+                                          -(len(learner_ports) - 1) // 2:]
+      assert len(agent_ports) == len(expert_ports)
+      self._data_server_agent = DataServer(
+        agent_ports, rm_size,
+        unroll_length, batch_size, ds_agent,
+        gpu_id_list=(0,),
+        batch_worker_num=batch_worker_num,
+        rollout_length=rollout_length,
+        prefetch_buffer_size=prefetch_buffer_size,
+        log_infos_interval=log_infos_interval)
+      self._data_server_expert = DataServer(
+        expert_ports, rm_size,
+        unroll_length, batch_size, ds_expert,
+        gpu_id_list=(0,),
+        batch_worker_num=batch_worker_num,
+        rollout_length=rollout_length,
+        prefetch_buffer_size=prefetch_buffer_size,
+        log_infos_interval=log_infos_interval)
+    else:
+      raise NotImplementedError('Unknown data_server_type for GAIL.')
+
+    # build the model net
     with tf.variable_scope('model', reuse=tf.AUTO_REUSE) as model_scope:
       pass
-    def create_policy(inputs, nc):
-      return policy.net_build_fun(inputs=inputs, nc=nc, scope=model_scope)
+
+    def create_model(inputs, nc):
+      return discriminator.net_build_fun(inputs=inputs, nc=nc,
+                                         scope=model_scope)
 
     device = '/gpu:{}'.format(0)
     with tf.device(device):
-      input_data = self._data_server.input_datas[0]
-      if 'use_xla' in policy_config and policy_config['use_xla']:
+      input_data = (self._data_server_agent.input_datas[0],
+                    self._data_server_expert.input_datas[0])
+      if 'use_xla' in discriminator_config and discriminator_config['use_xla']:
         try:
           # Use tensorflow's accerlated linear algebra compile method
           with tf.xla.experimental.jit_scope(True):
-            self.model = create_policy(input_data, net_config)
+            self.model = create_model(input_data, net_config)
         except:
           logger.log("WARNING: using tf.xla requires tf version>=1.15.")
-          self.model = create_policy(input_data, net_config)
+          self.model = create_model(input_data, net_config)
       else:
-        self.model = create_policy(input_data, net_config)
-      self.build_loss(self.model, input_data)
+        self.model = create_model(input_data, net_config)
+      self.build_loss(self.model)
     if self.use_hvd:
       self.losses = [hvd.allreduce(loss) for loss in self.losses]
     else:
       self.losses = list(self.losses)
     self.params = tf.trainable_variables(scope='model')
-    self.params_vf = tf.trainable_variables(scope='model/vf')
     self.param_norm = tf.global_norm(self.params)
 
     self.trainer = tf.train.AdamOptimizer(learning_rate=self.LR,
                                           beta1=adam_beta1,
                                           beta2=adam_beta2,
                                           epsilon=adam_eps)
-    self.burn_in_trainer = tf.train.AdamOptimizer(
-      learning_rate=self.LR,
-      epsilon=1e-5
-    )  # same as default and IL
     if use_mixed_precision:
       try:
-        self.trainer = tf.compat.v1.train.experimental.enable_mixed_precision_graph_rewrite(self.trainer)
-        self.burn_in_trainer = tf.compat.v1.train.experimental.enable_mixed_precision_graph_rewrite(self.burn_in_trainer)
+        self.trainer = \
+          tf.compat.v1.train.experimental.enable_mixed_precision_graph_rewrite(
+            self.trainer)
       except:
         logger.warn("using tf mixed_precision requires tf version>=1.15.")
     if self.use_hvd:
       self.trainer = hvd.DistributedOptimizer(
         self.trainer, sparse_as_dense=use_sparse_as_dense)
-      self.burn_in_trainer = hvd.DistributedOptimizer(
-        self.burn_in_trainer, sparse_as_dense=use_sparse_as_dense)
 
-    if 'use_lstm' in policy_config and policy_config['use_lstm']:
+    if 'use_lstm' in discriminator_config and discriminator_config['use_lstm']:
       self.clip_vars = self.model.vars.lstm_vars
     else:
       self.clip_vars = []
@@ -196,7 +191,8 @@ class PGLearner(BaseLearner):
     self.sess.graph.finalize()
 
     self.barrier = lambda: self.sess.run(barrier_op) if self.use_hvd else None
-    self.broadcast = lambda: self.sess.run(broadcast_op) if self.use_hvd else None
+    self.broadcast = lambda: self.sess.run(
+      broadcast_op) if self.use_hvd else None
     self.broadcast()
     # logging stuff
     format_strs = (['stdout', 'log', 'tensorboard', 'csv'] if self.rank == 0
@@ -204,28 +200,13 @@ class PGLearner(BaseLearner):
     dir = os.path.join(self.log_dir, f'{self._learner_id}rank{self.rank}')
     logger.configure(dir=dir, format_strs=format_strs)
 
-  def _freeze_params_grads_if_any(self, grads_and_vars):
-    frozen_grads_and_vars = []
-    for g, v in grads_and_vars:
-      if 'freeze' in v.name and g is not None:
-        frozen_grads_and_vars.append((None, v))
-      else:
-        frozen_grads_and_vars.append((g, v))
-    return frozen_grads_and_vars
-
   def _build_train_op(self):
     grads_and_vars = self.trainer.compute_gradients(self.loss, self.params)
-    grads_and_vars = self._freeze_params_grads_if_any(grads_and_vars)
-    grads_and_vars_vf = self.burn_in_trainer.compute_gradients(self.vf_loss,
-                                                               self.params_vf)
 
-    grads_and_vars, self.clip_grad_norm, self.nonclip_grad_norm = self.clip_grads_vars(
-      grads_and_vars, self.clip_vars, self.max_grad_norm)
-    grads_and_vars_vf, self.clip_grad_norm_vf, self.nonclip_grad_norm_vf = self.clip_grads_vars(
-      grads_and_vars_vf, self.clip_vars, self.max_grad_norm)
+    grads_and_vars, self.clip_grad_norm, self.nonclip_grad_norm = \
+      self.clip_grads_vars(grads_and_vars, self.clip_vars, self.max_grad_norm)
 
     self._train_batch = self.trainer.apply_gradients(grads_and_vars)
-    self._burn_in = self.burn_in_trainer.apply_gradients(grads_and_vars_vf)
 
   def run(self):
     logger.log('HvdPPOLearner: entering run()')
@@ -260,54 +241,50 @@ class PGLearner(BaseLearner):
       self._lrn_period_count += 1
 
   def _train(self, **kwargs):
-    self._data_server._update_model_id(self.model_key)
+    self._data_server_agent._update_model_id(self.model_key)
+    if hasattr(self, '_data_server_expert'):
+      self._data_server_expert._update_model_id(self.model_key)
     # Use different model, clear the replay memory
     if (self.last_model_key is None
         or self.last_model_key != self.task.parent_model_key):
-      self._data_server.reset()
-      while not self._data_server.ready_for_train:
+      self._data_server_agent.reset()
+      if hasattr(self, '_data_server_expert'):
+        self._data_server_expert.reset()
+      while not (self._data_server_agent.ready_for_train & (
+          self._data_server_expert.ready_for_train if
+          hasattr(self, '_data_server_expert') else True)):
         time.sleep(5)
         self._model_pool_apis.push_model(
           self.read_params(), self.task.hyperparam, self.model_key,
           learner_meta=self.read_opt_params()
         )
-      self._need_burn_in = True
-    else:
-      self._need_burn_in = False
 
     self.barrier()
     nbatch = self.batch_size * hvd.size() if self.use_hvd else self.batch_size
     self.should_push_model = (self.rank == 0)
     self._run_train_loop(nbatch)
 
-  def _init_const(self, total_timesteps, burn_in_timesteps, batch_size,
-                  unroll_length, rwd_shape, ent_coef, vf_coef,
-                  pub_interval, log_interval, log_dir, save_interval, policy,
-                  distill_coef, policy_config, rollout_length, max_grad_norm):
+  def _init_const(self, total_timesteps, batch_size, unroll_length,
+                  pub_interval, log_interval, log_dir, save_interval,
+                  model, disc_grad_penalty_coef,
+                  model_config, rollout_length, max_grad_norm):
     self.total_timesteps = total_timesteps
-    self.burn_in_timesteps = burn_in_timesteps
     self._train_batch = []
-    self._burn_in = []
     self.batch_size = batch_size
     self.unroll_length = unroll_length
-    self.rwd_shape = rwd_shape
-    self.ent_coef = ent_coef
-    self.vf_coef = vf_coef
     self.pub_interval = pub_interval
     self.log_interval = log_interval
     self.log_dir = log_dir
     self.save_interval = save_interval
-    self.policy = policy
-    self.distillation = (distill_coef != 0)
-    self.distill_coef = distill_coef
-    self.rnn = (False if 'use_lstm' not in policy_config
-                else policy_config['use_lstm'])
+    self.model = model
+    self.disc_grad_penalty_coef = disc_grad_penalty_coef,
+    self.rnn = (False if 'use_lstm' not in model_config
+                else model_config['use_lstm'])
     self.hs_len = None
-    self.n_v = policy_config['n_v']
-    policy_config['batch_size'] = batch_size
-    policy_config['rollout_len'] = rollout_length
+    model_config['batch_size'] = batch_size
+    model_config['rollout_len'] = rollout_length
     if self.rnn:
-      self.hs_len = policy_config['hs_len']
+      self.hs_len = model_config['hs_len']
     self.max_grad_norm = max_grad_norm
 
   def _build_ops(self):
@@ -323,39 +300,20 @@ class PGLearner(BaseLearner):
       p.assign(new_p) for p, new_p in zip(self.opt_params, self.new_opt_params)
     ]
     self.reset_optimizer_op = tf.variables_initializer(
-      self.trainer.variables() + self.burn_in_trainer.variables())
+      self.trainer.variables())
 
     self.loss_names = (list(self.loss_endpoints_names)
                        + ['clip_grad_norm', 'nonclip_grad_norm', 'param_norm'])
 
-    def _prepare_hyperparameter_map(lr, cliprange, lam, weights):
-      # for reward shaping weights
-      if weights is None:
-        assert not self.rwd_shape
-        td_map = {self.LR: lr, self.CLIPRANGE: cliprange,
-                  self.TOTALTIMESTEPS: self.current_total_timesteps}
-      else:
-        td_map = {self.LR: lr, self.CLIPRANGE: cliprange,
-                  self.TOTALTIMESTEPS: self.current_total_timesteps,
-                  self.rwd_weights: weights}
-      # for lambda of the td-lambda
-      if self.LAM is not None:
-        td_map[self.LAM] = lam
-      return td_map
+    def _prepare_map(lr):
+      feed_map = {self.LR: lr}
+      return feed_map
 
-    def train_batch(lr, cliprange, lam, weights=None):
-      td_map = _prepare_hyperparameter_map(lr, cliprange, lam, weights)
+    def train_batch(lr):
+      td_map = _prepare_map(lr)
       return self.sess.run(
         self.losses + [self.clip_grad_norm, self.nonclip_grad_norm,
                        self.param_norm, self._train_batch],
-        feed_dict=td_map
-      )[0:len(self.loss_names)]
-
-    def burn_in(lr, cliprange, lam, weights=None):
-      td_map = _prepare_hyperparameter_map(lr, cliprange, lam, weights)
-      return self.sess.run(
-        self.losses + [self.clip_grad_norm_vf, self.nonclip_grad_norm_vf,
-                       self.param_norm, self._burn_in],
         feed_dict=td_map
       )[0:len(self.loss_names)]
 
@@ -372,7 +330,8 @@ class PGLearner(BaseLearner):
 
     def restore_optimizer(loaded_opt_params):
       self.sess.run(self.opt_param_assign_ops,
-                    feed_dict={p: v for p, v in zip(self.new_opt_params, loaded_opt_params)})
+                    feed_dict={p: v for p, v in
+                               zip(self.new_opt_params, loaded_opt_params)})
 
     def load(load_path):
       loaded_params = joblib.load(load_path)
@@ -388,7 +347,6 @@ class PGLearner(BaseLearner):
       self.sess.run(self.reset_optimizer_op)
 
     self.train_batch = train_batch
-    self.burn_in = burn_in
     self.save = save
     self.load_model = load_model
     self.restore_optimizer = restore_optimizer
@@ -399,36 +357,22 @@ class PGLearner(BaseLearner):
 
   def _run_train_loop(self, nbatch):
     lr = as_func(self.task.hyperparam.learning_rate)
-    cliprange = as_func(self.task.hyperparam.cliprange)
-    lam = self.task.hyperparam.lam  # lambda for the td-lambda term
-    weights = None
-    if self.rwd_shape:
-      assert hasattr(self.task.hyperparam, 'reward_weights')
-      weights = np.array(self.task.hyperparam.reward_weights, dtype=np.float32)
-      if len(weights.shape) == 1:
-        weights = np.expand_dims(weights, 0)
     self.total_timesteps = getattr(self.task.hyperparam, 'total_timesteps',
                                    self.total_timesteps)
-    burn_in_timesteps = 0
-    if self._lrn_period_count == 0:
-      burn_in_timesteps = self.burn_in_timesteps
-    elif self._need_burn_in:
-      burn_in_timesteps = getattr(self.task.hyperparam, 'burn_in_timesteps', 0)
-    nupdates_burn_in = int(burn_in_timesteps // nbatch)
-    nupdates = nupdates_burn_in + int(self.total_timesteps // nbatch)
+
+    nupdates = int(self.total_timesteps // nbatch)
     mblossvals = []
     tfirststart = time.time()
     tstart = time.time()
-    total_samples = self._data_server.unroll_num * self.unroll_length
+    total_agent_samples = self._data_server_agent.unroll_num * \
+                          self.unroll_length
+    total_expert_samples = self._data_server_expert.unroll_num * \
+                           self.unroll_length
     logger.log('Start Training')
     for update in xrange(1, nupdates + 1):
       frac = 1.0 - (update - 1.0) / nupdates
       lrnow = lr(frac)
-      cliprangenow = cliprange(frac)
-      if update <= nupdates_burn_in:
-        mblossvals.append(self.burn_in(lrnow, cliprangenow, lam, weights))
-      else:
-        mblossvals.append(self.train_batch(lrnow, cliprangenow, lam, weights))
+      mblossvals.append(self.train_batch(lrnow))
       # publish models
       if update % self.pub_interval == 0 and self.should_push_model:
         self._model_pool_apis.push_model(
@@ -444,28 +388,36 @@ class PGLearner(BaseLearner):
           nbatch * min(update, self.log_interval) / (tnow - tstart)
         )
         time_elapsed = tnow - tfirststart
-        total_samples_now = self._data_server.unroll_num * self.unroll_length
-        receiving_fps = (total_samples_now - total_samples) / (tnow - tstart)
-        total_samples = total_samples_now
-        self.current_total_timesteps = update * nbatch
+        total_agent_samples_now = self._data_server_agent.unroll_num * \
+                                  self.unroll_length
+        total_expert_samples_now = self._data_server_expert.unroll_num * \
+                                   self.unroll_length
+        agent_receiving_fps = (total_agent_samples_now -
+                               total_agent_samples) / (tnow - tstart)
+        expert_receiving_fps = (total_expert_samples_now -
+                                total_expert_samples) / (tnow - tstart)
+        total_agent_samples = total_agent_samples_now
+        total_expert_samples = total_expert_samples_now
         tstart = time.time()
         # 'scope_name/var' style for grouping Tab in Tensorboard webpage
         # lp is short for Learning Period
         scope = 'lp{}/'.format(self._lrn_period_count)
         logger.logkvs({
           scope + "lrn_period_count": self._lrn_period_count,
-          scope + "burn_in_value": update <= nupdates_burn_in,
           scope + "nupdates": update,
           scope + "total_timesteps": update * nbatch,
           scope + "all_consuming_fps": consuming_fps,
           scope + 'time_elapsed': time_elapsed,
-          scope + "total_samples": total_samples,
-          scope + "receiving_fps": receiving_fps,
-          scope + "aband_samples": (self._data_server.aband_unroll_num *
-                                    self.unroll_length),
-          **dict([(scope + k, v) for k, v in
-                  dict(self._data_server.info_stat).items()]),
-          })
+          scope + "total_samples": total_agent_samples,
+          scope + "receiving_fps(agent,-)": agent_receiving_fps,
+          scope + "receiving_fps(expert,+)": expert_receiving_fps,
+          scope + "aband_samples(-)": (
+                self._data_server_agent.aband_unroll_num *
+                self.unroll_length),
+          scope + "aband_samples(+)": (
+                self._data_server_expert.aband_unroll_num *
+                self.unroll_length),
+        })
         logger.logkvs({scope + lossname: lossval for lossname, lossval
                        in zip(self.loss_names, lossvals)})
         logger.dumpkvs()
@@ -543,37 +495,11 @@ class PGLearner(BaseLearner):
     grads_and_vars = clip_grads_and_vars + nonclip_grads_and_vars
     return grads_and_vars, clip_grad_norm, nonclip_grad_norm
 
-  def build_loss(self, model, input_data):
-    entropy_list = nest.flatten(model.loss.entropy_loss)
-    if isinstance(self.ent_coef, list):
-      assert len(entropy_list) == len(
-        self.ent_coef), 'Lengths of ent and ent_coef mismatch.'
-      print('ent_coef: {}'.format(self.ent_coef))
-      entropy = tf.reduce_sum(
-        [e * ec for e, ec in zip(entropy_list, self.ent_coef)])
-    else:
-      entropy = tf.reduce_sum(entropy_list) * self.ent_coef
-    distill_loss = tf.constant(0, dtype=tf.float32)
-    if self.distillation:
-      distill_losses = nest.flatten(model.loss.distill_loss)
-      if isinstance(self.distill_coef, list):
-        assert len(distill_losses) == len(
-          self.distill_coef), 'Lengths of distill and distill_coef mismatch.'
-        print('distill_coef: {}'.format(self.distill_coef))
-        distill_loss = tf.reduce_sum(
-          [d * dc for d, dc in zip(distill_losses, self.distill_coef)])
-      else:
-        distill_loss = tf.reduce_sum(distill_losses) * self.distill_coef
-    if isinstance(self.vf_coef, list):
-      value_shape = model.loss.value_loss.shape
-      assert len(value_shape) == 1 and value_shape[0] == len(self.vf_coef)
-      print('vf_coef: {}'.format(self.vf_coef))
-      self.vf_loss = tf.reduce_sum(
-        model.loss.value_loss * tf.constant(self.vf_coef))
-    else:
-      self.vf_loss = tf.reduce_sum(model.loss.value_loss) * self.vf_coef
+  def build_loss(self, model):
+    disc_grad_penalty_loss = tf.reduce_sum(
+      model.loss.disc_grad_penalty_loss) * self.disc_grad_penalty_coef
     ep_loss = tf.constant(0, dtype=tf.float32)
     for loss_name, loss_coef in self.ep_loss_coef.items():
       ep_loss += model.loss.loss_endpoints[loss_name] * loss_coef
-    self.loss = (model.loss.pg_loss + self.vf_loss - entropy + distill_loss + ep_loss)
+    self.loss = (model.loss.disc_loss + disc_grad_penalty_loss + ep_loss)
     self.losses = model.loss.loss_endpoints.values()

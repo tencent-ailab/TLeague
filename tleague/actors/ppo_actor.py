@@ -15,10 +15,12 @@ from tleague.utils.data_structure import PPOData
 
 class PPOActor(Actor):
   """Actor for PPO."""
-  def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, **kwargs):
+  def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, data_server_version=None,
+               **kwargs):
     super(PPOActor, self).__init__(env, policy, league_mgr_addr,
                                    model_pool_addrs, data_type=PPOData,
                                    age_cls=PGAgent, **kwargs)
+    self._data_server_version = data_server_version
 
   def _push_data_to_learner(self, data_queue):
     logger.log('entering _push_data_to_learner',
@@ -34,12 +36,17 @@ class PPOActor(Actor):
       self.distill_agent.reset(last_obs[me_id])
 
     # loop infinitely to make the unroll on and on
+    push_times = 0
+    t0 = time.time()
     while True:
       data_model_id = self.task.model_key1
       mb_rewards, mb_values, mb_dones, mb_skips = [], [], [], []
       unroll = []
       infos = []
-      mask = False
+      mask = False  # For the first frame in an unroll, there is no need to care
+      # about whether it is just a start of a new episode, because even if it is a
+      # new start, hidden state is zero and this is equivalent to mask=True. For
+      # other cases, mask must be False. So, just set mask=False here.
       while True:
         if last_obs[me_id] is not None:
           # extend the unroll until a desired length
@@ -100,10 +107,21 @@ class PPOActor(Actor):
         last_gae_lam = (delta + (self._gamma ** (mb_skips[t]+1))
                         * self._lam * (1 - mb_dones[t]) * last_gae_lam)
         unroll[t].R = np.array(last_gae_lam + mb_values[t], np.float32)
-      compressed_unroll = [
-        TensorZipper.compress(self.ds.flatten(_data)) for _data in unroll
-      ]
-      self._learner_apis.push_data((data_model_id, compressed_unroll, infos))
+      if self._data_server_version == "v3":
+        unroll = [self.ds.flatten(_data) for _data in unroll]
+        shapes = tuple(data.shape for data in unroll[0])
+        unroll_np = np.concatenate([b.reshape(-1) for a in unroll for b in a])
+        self._learner_apis.push_data((data_model_id, unroll_np, infos, shapes))
+      else:
+        compressed_unroll = [
+          TensorZipper.compress(self.ds.flatten(_data)) for _data in unroll
+        ]
+        self._learner_apis.push_data((data_model_id, compressed_unroll, infos))
       logger.log(f"Pushed one unroll to learner at time "
                  f"{time.strftime('%Y%m%d%H%M%S')}",
                  level=logger.DEBUG + 5)
+      push_times += 1
+      if push_times % 10 == 0:
+        push_fps = push_times * self._unroll_length / (time.time() - t0 + 1e-8)
+        t0 = time.time()
+        logger.log("push fps: {}".format(push_fps))

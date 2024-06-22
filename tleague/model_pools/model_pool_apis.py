@@ -8,10 +8,12 @@ import time
 from threading import Lock
 
 import zmq
+import pickle
 
 from tleague.utils import logger
-from tleague.utils.tl_types import ModelPoolErroMsg
+from tleague.utils.robust_socket_recv import robust_pyobj_recv
 from tleague.model_pools.model import Model
+from tleague.model_pools.model_pool_msg import ModelPoolWriterMsg, ModelPoolReaderMsg, ModelPoolErroMsg
 
 
 class ModelPoolAPIs(object):
@@ -39,20 +41,20 @@ class ModelPoolAPIs(object):
       self.pull_keys()  # zmq request server in fair fashion
 
   def request(self, req):
+    attr = req[0]
+    key = req[1] if len(req) == 2 else None
     self._req_lock.acquire()
     while True:
       try:
-        for msg in req[0:-1]:
-          self._req_socket.send_string(msg, zmq.SNDMORE)
-        self._req_socket.send_string(req[-1])
-        ret = self._req_socket.recv_pyobj()
-        if not isinstance(ret, ModelPoolErroMsg):
-          break
+        self._req_socket.send_pyobj(ModelPoolReaderMsg(attr=attr, key=key))
+        ret = robust_pyobj_recv(self._req_socket)
+        if isinstance(ret, ModelPoolErroMsg):
+          logger.log(ret.msg) # ret isinstance ModelPoolErroMsg
         else:
-          logger.log(ret.msg)  # ret isinstance ModelPoolErroMsg
+          break 
         time.sleep(2)
       except BaseException as e:
-        logger.error("ModelPoolAPIs may crushed on request {},"
+        logger.error("error: ModelPoolAPIs may crushed on request {},"
                      " the exception:\n{}".format(req, e))
         raise e
     self._req_lock.release()
@@ -75,19 +77,16 @@ class ModelPoolAPIs(object):
 
   def freeze_model(self, key):
     self._pub_lock.acquire()
-    self._pub_socket.send_string('freeze', zmq.SNDMORE)
-    self._pub_socket.send_string(key)
+    self._pub_socket.send_pyobj(ModelPoolWriterMsg(freeze=key))
     self._pub_lock.release()
 
   def push_model(self, model, hyperparam, key, createtime=None,
                  freezetime=None, updatetime=None, learner_meta=None):
     self._pub_lock.acquire()
-    self._pub_socket.send_string('model', zmq.SNDMORE)
-    self._pub_socket.send_pyobj(
-      Model(model, hyperparam, key, createtime,
-            freezetime, updatetime))
+    model = Model(model, hyperparam, key, createtime,
+            freezetime, updatetime)
     if learner_meta is not None:
-      self._pub_socket.send_string('learner_meta', zmq.SNDMORE)
-      self._pub_socket.send_string(key, zmq.SNDMORE)
-      self._pub_socket.send_pyobj(learner_meta)
+      learner_meta = {key: learner_meta}
+    self._pub_socket.send_pyobj(
+      ModelPoolWriterMsg(model=model, learner_meta=learner_meta))
     self._pub_lock.release()

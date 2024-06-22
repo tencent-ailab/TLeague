@@ -7,7 +7,8 @@ from threading import Lock
 
 import zmq
 
-from tleague.utils.tl_types import LeagueMgrErroMsg
+from tleague.utils.robust_socket_recv import robust_pyobj_recv
+from tleague.league_mgrs.league_mgr_msg import LeagueMgrMsg, LeagueMgrErroMsg
 
 
 class LeagueMgrAPIs(object):
@@ -26,10 +27,9 @@ class LeagueMgrAPIs(object):
   def request_actor_task(self, actor_id, learner_id):
     self._req_lock.acquire()
     while True:
-      self._socket.send_string("request_actor_task", zmq.SNDMORE)
-      self._socket.send_pyobj((actor_id, learner_id))
-      task = self._socket.recv_pyobj()
-      if not isinstance(task, LeagueMgrErroMsg):
+      self._socket.send_pyobj(LeagueMgrMsg(attr="request_actor_task", key1=actor_id, key2=learner_id))
+      task = robust_pyobj_recv(self._socket)
+      if task != None and not isinstance(task, LeagueMgrErroMsg):
         break
       time.sleep(10)
     self._req_lock.release()
@@ -38,10 +38,9 @@ class LeagueMgrAPIs(object):
   def request_learner_task(self, learner_id):
     self._req_lock.acquire()
     while True:
-      self._socket.send_string("request_learner_task", zmq.SNDMORE)
-      self._socket.send_pyobj(learner_id)
-      task = self._socket.recv_pyobj()
-      if not isinstance(task, LeagueMgrErroMsg):
+      self._socket.send_pyobj(LeagueMgrMsg(attr="request_learner_task", key1=learner_id))
+      task = robust_pyobj_recv(self._socket)
+      if task != None and not isinstance(task, LeagueMgrErroMsg):
         break
       time.sleep(1)
     self._req_lock.release()
@@ -49,9 +48,8 @@ class LeagueMgrAPIs(object):
 
   def query_learner_task(self, learner_id):
     self._req_lock.acquire()
-    self._socket.send_string("query_learner_task", zmq.SNDMORE)
-    self._socket.send_pyobj(learner_id)
-    task = self._socket.recv_pyobj()
+    self._socket.send_pyobj(LeagueMgrMsg(attr="query_learner_task", key1=learner_id))
+    task = robust_pyobj_recv(self._socket)
     self._req_lock.release()
     if isinstance(task, LeagueMgrErroMsg):
       return None
@@ -60,35 +58,30 @@ class LeagueMgrAPIs(object):
 
   def notify_actor_task_begin(self, actor_id):
     self._req_lock.acquire()
-    self._socket.send_string("notify_actor_task_begin", zmq.SNDMORE)
-    self._socket.send_pyobj(actor_id)
-    assert self._socket.recv_string() == "ok"
+    self._socket.send_pyobj(LeagueMgrMsg(attr="notify_actor_task_begin", key1=actor_id))
+    robust_pyobj_recv(self._socket)
     self._req_lock.release()
 
   def notify_actor_task_end(self, actor_id, match_result):
     self._req_lock.acquire()
-    self._socket.send_string("notify_actor_task_end", zmq.SNDMORE)
-    self._socket.send_pyobj((actor_id, match_result))
-    assert self._socket.recv_string() == "ok"
+    self._socket.send_pyobj(LeagueMgrMsg(attr="notify_actor_task_end", key1=actor_id, key2=match_result))
+    robust_pyobj_recv(self._socket)
     self._req_lock.release()
 
   def notify_learner_task_begin(self, learner_id, learner_task):
     self._req_lock.acquire()
-    self._socket.send_string("notify_learner_task_begin", zmq.SNDMORE)
-    self._socket.send_pyobj((learner_id, learner_task))
-    assert self._socket.recv_string() == "ok"
+    self._socket.send_pyobj(LeagueMgrMsg(attr="notify_learner_task_begin", key1=learner_id, key2=learner_task))
+    robust_pyobj_recv(self._socket)
     self._req_lock.release()
 
   def notify_learner_task_end(self, learner_id):
     self._req_lock.acquire()
-    self._socket.send_string("notify_learner_task_end", zmq.SNDMORE)
-    self._socket.send_pyobj(learner_id)
-    assert self._socket.recv_string() == "ok"
+    self._socket.send_pyobj(LeagueMgrMsg(attr="notify_learner_task_end", key1=learner_id))
+    robust_pyobj_recv(self._socket)
     self._req_lock.release()
 
   def request_add_model(self, model):
     self._req_lock.acquire()
-    self._socket.send_string("request_add_model", zmq.SNDMORE)
-    self._socket.send_pyobj(model)
-    assert self._socket.recv_string() == "ok"
+    self._socket.send_pyobj(LeagueMgrMsg(attr="request_add_model", key1=model))
+    robust_pyobj_recv(self._socket)
     self._req_lock.release()

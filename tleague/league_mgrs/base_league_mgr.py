@@ -4,12 +4,14 @@ from __future__ import print_function
 
 import time
 from abc import ABCMeta, abstractmethod
-
+from threading import Thread
 import zmq
 
 from tleague.model_pools.model_pool_apis import ModelPoolAPIs
 from tleague.utils import logger
 from tleague.utils.chkpts import ChkptsFromModelPool
+from tleague.utils.robust_socket_recv import robust_pyobj_recv, robust_string_recv
+from tleague.league_mgrs.league_mgr_msg import LeagueMgrMsg, LeagueMgrErroMsg, LeagueMgrOKMsg
 
 
 class BaseLeagueMgr(metaclass=ABCMeta):
@@ -37,6 +39,19 @@ class BaseLeagueMgr(metaclass=ABCMeta):
     self._restore_checkpoint_dir = restore_checkpoint_dir
     self._curr_model_idx = 1
 
+    self._save_thread = Thread(target=self._save_checkpoint_thread)
+    self._save_thread.daemon = True
+
+  def _save_checkpoint_thread(self):
+    t_prev = time.time()
+    while True:
+      t_now = time.time()
+      if (t_now - t_prev) >= self._save_interval_secs:
+        checkpoint_name = "checkpoint_%s" % time.strftime('%Y%m%d%H%M%S')
+        self._save_checkpoint(self._save_checkpoint_root, checkpoint_name)
+        t_prev = t_now
+      time.sleep(5)
+
   def _gen_new_model_key(self, old_model_key):
     """ generate new model_key with "old_id_str:new_id_str" format"""
     new_model_suffix = '%04d' % self._curr_model_idx
@@ -50,53 +65,50 @@ class BaseLeagueMgr(metaclass=ABCMeta):
   def run(self):
     if self._restore_checkpoint_dir is not None:
       self._restore_checkpoint(self._restore_checkpoint_dir)
+    self._save_thread.start()
 
-    t_prev = time.time()
     while True:
-      # should save checkpoint (block the message processing below)
-      t_now = time.time()
-      if (t_now - t_prev) >= self._save_interval_secs:
-        checkpoint_name = "checkpoint_%s" % time.strftime('%Y%m%d%H%M%S')
-        self._save_checkpoint(self._save_checkpoint_root, checkpoint_name)
-        t_prev = t_now
-
-      # message loop
-      msg = self._socket.recv_string()
-      logger.log("Received msg: '%s'" % msg, level=logger.DEBUG)
-      if msg == 'request_actor_task':
-        actor_id, learner_id = self._socket.recv_pyobj()
+      msg = robust_pyobj_recv(self._socket)
+      if msg == None or not isinstance(msg, LeagueMgrMsg):
+        logger.log('LeagueMgr msg corrupted.')
+        self._socket.send_pyobj(LeagueMgrErroMsg(msg='Msg corrupted'))
+        continue
+      attr = msg.attr
+      logger.log("Received msg: '%s'" % attr, level=logger.DEBUG)
+      if attr == 'request_actor_task':
+        actor_id, learner_id = msg.key1, msg.key2
         actor_task = self._on_request_actor_task(actor_id, learner_id)
         self._socket.send_pyobj(actor_task)
-      elif msg == 'request_learner_task':
-        learner_id = self._socket.recv_pyobj()
+      elif attr == 'request_learner_task':
+        learner_id = msg.key1
         learner_task = self._on_request_learner_task(learner_id)
         self._socket.send_pyobj(learner_task)
-      elif msg == 'query_learner_task':
-        learner_id = self._socket.recv_pyobj()
+      elif attr == 'query_learner_task':
+        learner_id = msg.key1
         learner_task = self._on_query_learner_task(learner_id)
         self._socket.send_pyobj(learner_task)
-      elif msg == 'notify_actor_task_begin':
-        actor_id = self._socket.recv_pyobj()
-        self._socket.send_string("ok")
+      elif attr == 'notify_actor_task_begin':
+        actor_id = msg.key1
+        self._socket.send_pyobj(LeagueMgrOKMsg(msg="ok"))
         self._on_notify_actor_task_begin(actor_id)
-      elif msg == 'notify_actor_task_end':
-        actor_id, match_result = self._socket.recv_pyobj()
-        self._socket.send_string("ok")
+      elif attr == 'notify_actor_task_end':
+        actor_id, match_result = msg.key1, msg.key2
+        self._socket.send_pyobj(LeagueMgrOKMsg(msg="ok"))
         self._on_notify_actor_task_end(actor_id, match_result)
-      elif msg == 'notify_learner_task_begin':
-        learner_id, learner_task = self._socket.recv_pyobj()
-        self._socket.send_string("ok")
+      elif attr == 'notify_learner_task_begin':
+        learner_id, learner_task = msg.key1, msg.key2
+        self._socket.send_pyobj(LeagueMgrOKMsg(msg="ok"))
         self._on_notify_learner_task_begin(learner_id, learner_task)
-      elif msg == 'notify_learner_task_end':
-        learner_id = self._socket.recv_pyobj()
-        self._socket.send_string("ok")
+      elif attr == 'notify_learner_task_end':
+        learner_id = msg.key1
+        self._socket.send_pyobj(LeagueMgrOKMsg(msg="ok"))
         self._on_notify_learner_task_end(learner_id)
-      elif msg == 'request_add_model':
-        model = self._socket.recv_pyobj()
-        self._socket.send_string("ok")
+      elif attr == 'request_add_model':
+        model = msg.key1
+        self._socket.send_pyobj(LeagueMgrOKMsg(msg="ok"))
         self._on_request_add_model(model)
       else:
-        raise RuntimeError("message {} not recognized".format(msg))
+        self._socket.send_pyobj(LeagueMgrErroMsg(msg="Unrecognized string.(League Mgr)"))
 
   def _save_checkpoint(self, checkpoint_root, checkpoint_name):
     self._saver._save_model_checkpoint(checkpoint_root, checkpoint_name)

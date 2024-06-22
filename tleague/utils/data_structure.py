@@ -1,6 +1,9 @@
+import warnings
+
 import numpy as np
 from tensorflow.contrib.framework import nest
-from tpolicies.tp_utils import map_gym_space_to_structure, template_structure_from_gym_space
+from tpolicies.tp_utils import map_gym_space_to_structure, \
+  template_structure_from_gym_space
 from tpolicies.utils.distributions import make_pdtype
 
 
@@ -8,31 +11,36 @@ def namedlist(fields):
   if isinstance(fields, str):
     fields = fields.replace(',', ' ').split()
   fields = list(map(str, fields))
+
   class Structure(list):
     _fields = fields
     _attr_index = {field: i for i, field in enumerate(fields)}
+
     def __init__(self, seq=()):
       if len(seq) > len(fields):
         raise IOError('input is too long!')
       else:
         seq = list(seq) + [None] * (len(fields) - len(seq))
       super(Structure, self).__init__(seq)
+
     def __getattr__(self, item):
       if item not in self._attr_index:
         raise AttributeError(f'namedlist object has no attribute {item}')
       return self[self._attr_index[item]]
+
     def __setattr__(self, key, value):
       if key not in self._attr_index:
         raise AttributeError(f'namedlist object has no attribute {key}')
       self[self._attr_index[key]] = value
+
   return Structure
 
 
 class DataStructure(object):
   def __init__(self, fields, specs, templates):
-    self.fields = fields # dict fields
+    self.fields = fields  # dict fields
     self._structure = namedlist(fields)
-    self.spec = self.structure(specs) # whole data structure
+    self.spec = self.structure(specs)  # whole data structure
     self.template_spec = self.structure(templates)
     self.flatten_spec = nest.flatten_up_to(self.template_spec, self.spec)
 
@@ -51,15 +59,15 @@ class ILData(DataStructure):
     shape_dtype = lambda x: (x.shape, x.dtype)
     _fields = ['X', 'A']
     specs = [map_gym_space_to_structure(shape_dtype, ob_space),
-             map_gym_space_to_structure(shape_dtype, ac_space),]
+             map_gym_space_to_structure(shape_dtype, ac_space), ]
     templates = [template_structure_from_gym_space(ob_space),
-                 template_structure_from_gym_space(ac_space),]
+                 template_structure_from_gym_space(ac_space), ]
     if use_lstm:
       assert int(hs_len) == hs_len
       _fields.extend(['S', 'M'])
       specs.extend([([hs_len], np.float32),
-                    ([], np.bool),])
-      templates.extend([None, None,])
+                    ([], np.bool), ])
+      templates.extend([None, None, ])
     super(ILData, self).__init__(_fields, specs, templates)
 
 
@@ -116,6 +124,38 @@ class PPOData(PGData):
     super(PGData, self).__init__(self.fields, self.specs, self.templates)
 
 
+class DistillData(DataStructure):
+  def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
+               distill_type='standard', **kwargs):
+    if len(kwargs) > 0:
+      warnings.warn('Unkown args passed in DistillData structure: {}'.format(
+        kwargs))
+    _fields = ['X', 'A']
+    shape_dtype = lambda x: (x.shape, x.dtype)
+    specs = [map_gym_space_to_structure(shape_dtype, ob_space),
+             map_gym_space_to_structure(shape_dtype, ac_space)]
+    templates = [template_structure_from_gym_space(ob_space),
+                 template_structure_from_gym_space(ac_space)]
+
+    if distill_type == 'standard':
+      _fields.append('flatparam')  # compatible for both discrete and cont cases
+      flatparam_shape_dtype = lambda x: (make_pdtype(x).param_shape(),
+                                         np.float32)
+      param_shape_dtype = map_gym_space_to_structure(flatparam_shape_dtype,
+                                                     ac_space)
+      param_templates = template_structure_from_gym_space(ac_space)
+      specs.append(param_shape_dtype)
+      templates.append(param_templates)
+
+    if use_lstm:
+      assert int(hs_len) == hs_len
+      _fields.extend(['S', 'M'])
+      specs.extend([([hs_len], np.float32),
+                    ([], np.bool), ])
+      templates.extend([None, None, ])
+    super(DistillData, self).__init__(_fields, specs, templates)
+
+
 class VtraceData(PGData):
   def __init__(self, ob_space, ac_space, n_v, use_lstm=False, hs_len=None,
                distillation=False, use_oppo_obs=False):
@@ -156,6 +196,35 @@ class InfData(DataStructure):
       assert int(hs_len) == hs_len
       _fields.extend(['S', 'M'])
       specs.extend([([hs_len], np.float32),
-                    ([], np.bool),])
-      templates.extend([None, None,])
+                    ([], np.bool), ])
+      templates.extend([None, None, ])
     super(InfData, self).__init__(_fields, specs, templates)
+
+
+class DiscAgentData(DataStructure):
+  def __init__(self, ob_space, ac_space, n_v=1, use_lstm=False, hs_len=None,
+               **kwargs):
+    shape_dtype = lambda x: (x.shape, x.dtype)
+    _fields = ['X', 'A']
+    specs = [map_gym_space_to_structure(shape_dtype, ob_space),
+             map_gym_space_to_structure(shape_dtype, ac_space), ]
+    templates = [template_structure_from_gym_space(ob_space),
+                 template_structure_from_gym_space(ac_space), ]
+    if use_lstm:
+      assert int(hs_len) == hs_len
+      _fields.extend(['S', 'M'])
+      specs.extend([([hs_len], np.float32),
+                    ([], np.bool), ])
+      templates.extend([None, None, ])
+    super(DiscAgentData, self).__init__(_fields, specs, templates)
+
+
+class DiscExpertData(DataStructure):
+  """ Only for batch gail expert """
+  def __init__(self, n_feature):
+    _fields = ['X']
+    specs = [([n_feature], np.float32)]
+    templates = [None]
+    self.specs = specs
+    self.templates = templates
+    super(DiscExpertData, self).__init__(_fields, specs, templates)

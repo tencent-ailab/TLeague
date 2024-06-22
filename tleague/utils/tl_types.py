@@ -42,18 +42,6 @@ class MatchResult(object):
                 'outcome': self.outcome, 'info': self.info})
 
 
-class ModelPoolErroMsg(object):
-
-  def __init__(self, msg):
-    self.msg = msg
-
-
-class LeagueMgrErroMsg(object):
-
-  def __init__(self, msg):
-    self.msg = msg
-
-
 def is_inherit(model_key1, model_key2):
   return model_key1.split(':')[1] == model_key2.split(':')[0]
 

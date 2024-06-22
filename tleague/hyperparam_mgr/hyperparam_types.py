@@ -728,6 +728,39 @@ class DiscreteDistribHyperparamV3(ConstantHyperparam):
                                                    s_weight_orig])
 
 
+class AsymConstantHyperparam(ConstantHyperparam):
+  def __init__(self,
+               learner_id=None,
+               blackboard=None,
+               lrn_id_to_init_model_key=None,
+               **kwargs):
+    self.learner_id = learner_id or 'lrngrp0'
+    for lrn_id in lrn_id_to_init_model_key:
+      if lrn_id_to_init_model_key[lrn_id] == 'None':
+        lrn_id_to_init_model_key[lrn_id] = None
+    self.lrn_id_to_init_model_key = lrn_id_to_init_model_key  # or {
+    #   'lrngrp0': 'None:init_model0',
+    #   'discriminator0': 'None:init_model1'
+    # }
+    super(AsymConstantHyperparam, self).__init__(**kwargs)
+    self.init_model_key = self.lrn_id_to_init_model_key[self.learner_id]
+
+  def __str__(self):
+    s_nn = _str_dict({
+      'lr': self.learning_rate,
+      'cliprange': self.cliprange,
+      'lam': self.lam,
+      'gamma': self.gamma,
+      'sigma': self.sigma,
+    })
+    s_distrib = ('learner_id: {}, init_model_key: {}').format(
+      self.learner_id,
+      self.init_model_key,
+    )
+    s_weight = 'rwd_weights: ' + _str_list(self.reward_weights)
+    return type(self).__name__ + ': ' + ', '.join([s_nn, s_distrib, s_weight])
+
+
 class LpLen(Hyperparam):
   max_total_timesteps = 0
   minimal_lp_len_ratio = 0.3

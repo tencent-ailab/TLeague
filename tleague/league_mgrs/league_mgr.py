@@ -8,10 +8,10 @@ import time
 
 from tleague.hyperparam_mgr.hyperparam_mgr import HyperparamMgr
 from tleague.league_mgrs.base_league_mgr import BaseLeagueMgr
+from tleague.league_mgrs.league_mgr_msg import LeagueMgrErroMsg
 from tleague.utils import logger
 from tleague.utils.tl_types import ActorTask
 from tleague.utils.tl_types import LearnerTask
-from tleague.utils.tl_types import LeagueMgrErroMsg
 from tleague.utils import now
 from tleague.utils import import_module_or_data
 
@@ -166,7 +166,7 @@ class LeagueMgr(BaseLeagueMgr):
       return task
     else:
       logger.log('_on_query_learner_task: task not exists.')
-      return LeagueMgrErroMsg("Learner task not exits.")
+      return LeagueMgrErroMsg("Learner task not exists.")
 
   def _on_request_actor_task(self, actor_id, learner_id):
     actor_task = super(LeagueMgr, self)._on_request_actor_task(
@@ -202,6 +202,8 @@ class LeagueMgr(BaseLeagueMgr):
       if isinstance(oppo_model_key, LeagueMgrErroMsg):
         logger.log(f'get_opponent not ready: {oppo_model_key}', level=logger.WARN)
         return oppo_model_key
+      elif model_key is None or oppo_model_key is None:
+        raise KeyError('One of the player model key is None.')
       return ActorTask(model_key, oppo_model_key, hyperparam)
     else:
       if learner_id not in self._learner_task_table:

@@ -16,10 +16,11 @@ class LearnerAPIs(object):
     self._zmq_context.setsockopt(zmq.TCP_KEEPALIVE_CNT, 60)
     self._zmq_context.setsockopt(zmq.TCP_KEEPALIVE_IDLE, 60)
     self._zmq_context.setsockopt(zmq.TCP_KEEPALIVE_INTVL, 60)
-    ip, port_req, port_push = learner_addr.split(':')
+    ip, port_req, *port_pushs = learner_addr.split(':')
     self._push_socket = self._zmq_context.socket(zmq.PUSH)
     self._push_socket.setsockopt(zmq.SNDHWM, 1)
-    self._push_socket.connect("tcp://%s:%s" % (ip, port_push))
+    for port in port_pushs:
+      self._push_socket.connect("tcp://%s:%s" % (ip, port))
     self._req_socket = self._zmq_context.socket(zmq.REQ)
     self._req_socket.connect("tcp://%s:%s" % (ip, port_req))
     self._req_lock = Lock()

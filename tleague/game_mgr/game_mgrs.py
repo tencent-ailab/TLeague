@@ -22,6 +22,7 @@ For detailed discussions on the algorithm, please refer to the following works:
 import random
 import sys
 from enum import IntEnum
+from collections import OrderedDict
 
 import numpy as np
 from scipy.stats import norm
@@ -34,6 +35,8 @@ from .utils import elo_update_rating
 from ..utils import logger
 from ..utils.logger import Logger
 from ..utils.logger import HumanOutputFormat as HOF
+from ..league_mgrs.league_mgr_msg import LeagueMgrErroMsg
+from tleague.game_mgr.utils import winrates_to_prob
 
 
 class PSROGameMgr(GameMgr):
@@ -1342,6 +1345,40 @@ class SelfPlayGameMgr(GameMgr):
   def get_eval_match(self):
     # Random Sampling from current players
     return self.players[-1], random.choice(self.players)
+
+
+class PFSPGameMgr(GameMgr):
+  """ Prioritized Fiticious Self-Play for symmetric games.
+  """
+
+  def __init__(self, sp=True, **kwargs):
+    super(PFSPGameMgr, self).__init__(**kwargs)
+    self._sp = sp
+
+  def get_player(self, current_player):
+    # Return the latest player
+    return self.players[-1], False
+
+  def _pfsp_opponent(self, opponents, winrates):
+    # prioritized fictitious self play
+    selected_oppo = np.random.choice(
+      opponents,
+      p=winrates_to_prob(winrates, weighting="squared"))
+    return selected_oppo
+
+  def get_opponent(self, player, hyperparam):
+    if self._sp:
+      opponents = self.players
+    else:
+      if len(self.players) > 1:
+        opponents = self.players[:-1]
+      else:
+        opponents = self.players
+    winrate, _, _ = self.get_one_vs_all_info(
+      cur_player=player,
+      other_players=opponents,
+      minimal_matches=5)
+    return self._pfsp_opponent(opponents, winrate)
 
 
 class FixedInitOppoGameMgr(GameMgr):

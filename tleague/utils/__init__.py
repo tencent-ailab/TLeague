@@ -45,17 +45,19 @@ def _read_config_dict_py_expression(config_name):
 def import_module_or_data(import_path):
   try:
     maybe_module, maybe_data_name = import_path.rsplit(".", 1)
-    print('trying from module {} import data {}'.format(maybe_module,
-                                                        maybe_data_name))
-    return getattr(importlib.import_module(maybe_module), maybe_data_name)
-  except Exception as e:
-    print('Cannot import data from the module path, error {}'.format(str(e)))
+    result = getattr(importlib.import_module(maybe_module), maybe_data_name)
+    print('Successfully from module {} import data {}'.format(maybe_module,
+                                                              maybe_data_name))
+    return result
+  except Exception:
+    pass
 
   try:
-    print('trying to import module {}'.format(import_path))
-    return importlib.import_module(import_path)
-  except Exception as e:
-    print('Cannot import module, error {}'.format(str(e)))
+    result = importlib.import_module(import_path)
+    print('Successfully import module {}'.format(import_path))
+    return result
+  except Exception:
+    pass
 
   raise ImportError('Cannot import module or data using {}'.format(import_path))
 

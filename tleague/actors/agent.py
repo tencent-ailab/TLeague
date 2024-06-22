@@ -1,12 +1,12 @@
+import os
 from collections import OrderedDict
 
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.framework import nest
 import tpolicies.tp_utils as tp_utils
-
-from tleague.utils.data_structure import InfData
+from tensorflow.contrib.framework import nest
 from tleague.inference_server.api import InfServerAPIs
+from tleague.utils.data_structure import InfData
 
 
 class Agent(object):
@@ -20,15 +20,20 @@ class Agent(object):
 
     # bookkeeping
     self.ob_space = ob_space
-    self.ob_space = ac_space
+    self.ac_space = ac_space
     self._ac_structure = tp_utils.template_structure_from_gym_space(ac_space)
     self.infserver_addr = infserver_addr
     self.compress = compress  # send compressed data to infserver
     self.n_v = n_v  # number of reward channels
 
     policy_config = {} if policy_config is None else policy_config
-    policy_config['batch_size'] = 1
-    policy_config['test'] = True
+    if 'batch_size' not in policy_config:
+      # batch_size is not 1 only when vec_env is used
+      policy_config['batch_size'] = 1
+    self.batch_size = policy_config['batch_size']
+    if 'test' not in policy_config:
+      policy_config['test'] = True
+
     self.nc = policy.net_config_cls(ob_space, ac_space, **policy_config)
     self.rnn = (False if 'use_lstm' not in policy_config
                 else policy_config['use_lstm'])
@@ -37,13 +42,31 @@ class Agent(object):
     if not self.rnn:
       self._hs_len = None
       self._state = None
+      self._start_mask = None
     else:
       self._hs_len = self.nc.hs_len
-      self._state = np.zeros(shape=(self._hs_len,), dtype=np.float32)
+      if self.batch_size == 1:
+        if not hasattr(self.nc, 'reset_hs_func') or (
+            self.nc.reset_hs_func is None):
+          self._state = np.zeros(shape=(self._hs_len,), dtype=np.float32)
+        else:
+          # for the case when hs_0 != 0
+          self._state = self.nc.reset_hs_func()
+        self._start_mask = None
+      else:
+        # vectorized env
+        if not hasattr(self.nc, 'reset_hs_func') or (
+            self.nc.reset_hs_func is None):
+          self._state = np.zeros(shape=(self.batch_size, self._hs_len),
+                                 dtype=np.float32)
+        else:
+          raise NotImplementedError
+        self._start_mask = np.zeros(shape=(self.batch_size,), dtype=np.float32)
 
     if infserver_addr is None:
       # build the net
       if use_gpu_id < 0:  # not using GPU
+        os.environ['CUDA_VISIBLE_DEVICES'] = ''
         self.sess = tf.Session()
         device = '/cpu:0'
       else:
@@ -77,6 +100,11 @@ class Agent(object):
     # rnn state
     return self._state
 
+  def set_start_mask(self, start_idx_list):
+    assert self.batch_size > 1, 'Non-vec_env should not call this method.'
+    self._start_mask = np.zeros(shape=(self.batch_size,))
+    self._start_mask[start_idx_list] = True
+
   def load_model(self, np_params):
     if self.infserver_addr is None:
       self.sess.run(self.params_assign_ops[:len(np_params)], feed_dict={
@@ -85,24 +113,62 @@ class Agent(object):
   def reset(self, obs=None):
     if self._hs_len is None:
       return
-    self._state = np.zeros(shape=(self._hs_len,), dtype=np.float32)
+    if self.batch_size == 1:
+      if not hasattr(self.nc, 'reset_hs_func') or (
+          self.nc.reset_hs_func is None):
+        self._state = np.zeros(shape=(self._hs_len,), dtype=np.float32)
+      else:
+        # for the case when hs_0 != 0
+        self._state = self.nc.reset_hs_func()
+      self._start_mask = None
+    else:
+      # vectorized env
+      if not hasattr(self.nc, 'reset_hs_func') or (
+          self.nc.reset_hs_func is None):
+        self._state = np.zeros(shape=(self.batch_size, self._hs_len),
+                               dtype=np.float32)
+      else:
+        raise NotImplementedError
+      self._start_mask = np.zeros(shape=(self.batch_size,), dtype=np.float32)
 
   def _forward(self, obs, fetches=None, action=None):
     if self.infserver_addr is None:
       def _feed_obs(obs, action):
         """prepare feed_dict from input obs"""
-        feed_dict = {ob_ph: [ob_np] for ob_ph, ob_np
-                     in zip(nest.flatten(self.inputs_ph.X), nest.flatten(obs))}
-        if self._state is not None:
-          feed_dict[self.inputs_ph.S] = [self._state]
-          # always one-step, non-terminal
-          feed_dict[self.inputs_ph.M] = [np.zeros(shape=())]
-        if action is not None:
-          assert self.inputs_ph.A is not None
-          for ac_ph, ac_np in zip(nest.flatten(self.inputs_ph.A),
-                                  nest.flatten(action)):
-            feed_dict[ac_ph] = [ac_np]
+        if self.batch_size == 1:
+          feed_dict = {ob_ph: [ob_np] for ob_ph, ob_np
+                       in
+                       zip(nest.flatten(self.inputs_ph.X), nest.flatten(obs))}
+          if self._state is not None:
+            feed_dict[self.inputs_ph.S] = [self._state]
+            # here is one-step lstm inference; hs is fed by last net output
+            # or reset by zeros for the start of an episode, so inputs_ph.M
+            # which indicates the start of an episode can always be set as 0
+            # as the following code line, but in the _push_data_to_learner
+            # function, mask should correctly be the start of the episode,
+            # since it will be send to learner which does not touch the env
+            # but only the data
+            feed_dict[self.inputs_ph.M] = [np.zeros(shape=())]
+          if action is not None:
+            assert self.inputs_ph.A is not None
+            for ac_ph, ac_np in zip(nest.flatten(self.inputs_ph.A),
+                                    nest.flatten(action)):
+              feed_dict[ac_ph] = [ac_np]
+        else:
+          # This is only for vec_env
+          feed_dict = {ob_ph: ob_np for ob_ph, ob_np
+                       in
+                       zip(nest.flatten(self.inputs_ph.X), nest.flatten(obs))}
+          if self._state is not None:
+            feed_dict[self.inputs_ph.S] = self._state
+            feed_dict[self.inputs_ph.M] = self._start_mask
+          if action is not None:
+            assert self.inputs_ph.A is not None
+            for ac_ph, ac_np in zip(nest.flatten(self.inputs_ph.A),
+                                    nest.flatten(action)):
+              feed_dict[ac_ph] = ac_np
         return feed_dict
+
       fetches = {} if fetches is None else fetches
       feed_dict = _feed_obs(obs, action)
       if self._state is not None:
@@ -115,18 +181,19 @@ class Agent(object):
       if self._state is not None:
         data.extend([self.state, np.array(False)])
       ret = self.apis.request_output(self.ds.structure(data))
-    ret = dict([(k, _squeeze_batch_size_singleton_dim(v))
-                for k, v in ret.items()])
+    if self.batch_size == 1:
+      ret = dict([(k, _squeeze_batch_size_singleton_dim(v))
+                  for k, v in ret.items()])
     if self._state is not None:
       self._last_state = self._state
       self._state = ret.pop('state')
     return ret
 
-  def forward_squeezed(self, obs):
+  def forward_squeezed(self, *args, **kwargs):
     # return action, other params for rl
     raise NotImplementedError
 
-  def step(self, obs):
+  def step(self, *args, **kwargs):
     # return action
     raise NotImplementedError
 
@@ -137,7 +204,12 @@ class PGAgent(Agent):
   E.g., policy NNs for PPO, VTrace, etc. It only supports
   tpolicies.net_zoo.mnet_v5 or newer Neural Net.
   """
+
   def forward_squeezed(self, obs):
+    """ For rl training usage, return action and other rl variables.
+
+    Self agent will call this method
+    """
     if self.infserver_addr is None:
       # prepare fetches dict
       fetches = {
@@ -148,23 +220,48 @@ class PGAgent(Agent):
                                             self.net_out.self_fed_heads),
         'v': self.net_out.value_head if self.net_out.value_head is not None else []
       }
+      # other fetches; must be used together with post_process_data in actor
+      fetches.update(self.net_out.endpoints)
     else:
       fetches = None
     ret = self._forward(obs, fetches=fetches)
+    other_net_out = OrderedDict()
+    if self.infserver_addr is None:
+      for key in self.net_out.endpoints:
+        other_net_out[key] = ret.pop(key)
     ret['state'] = self._last_state
-    return ret.pop('a'), ret
+    return ret.pop('a'), ret, other_net_out
 
-  def step(self, obs):
+  def step(self, obs, argmax=False, endpoints=None):
+    """ Only for step, return action only. In PG method, this func is only
+
+    called for opponents inference, because opponents do not return extra
+    variables, while self agent returns extra RL variables such as neglogp
+    """
     if self.infserver_addr is None:
       # prepare fetches dict
-      fetches = {
-        'a': nest.map_structure_up_to(self._ac_structure, lambda head: head.sam,
-                                      self.net_out.self_fed_heads),
-      }
+      if not argmax:
+        fetches = {
+          'a': nest.map_structure_up_to(self._ac_structure,
+                                        lambda head: head.sam,
+                                        self.net_out.self_fed_heads),
+        }
+      else:
+        fetches = {
+          'a': nest.map_structure_up_to(self._ac_structure,
+                                        lambda head: head.argmax,
+                                        self.net_out.self_fed_heads),
+        }
+        if endpoints:
+          for attr_key in endpoints:
+            fetches.update({attr_key: self.net_out.endpoints[attr_key]})
     else:
       fetches = None
     ret = self._forward(obs, fetches=fetches)
-    return ret['a']
+    if endpoints:
+      return ret.pop('a'), ret
+    else:
+      return ret['a']
 
   def update_state(self, obs):
     fetches = {}
@@ -201,6 +298,68 @@ class DDPGAgent(PGAgent):
     if self._state is not None:
       ret['state'] = self._last_state
     return ret.pop('a'), ret
+
+
+class DistillAgent(Agent):
+  """An agent that carries teacher policy outputs for distillation.
+  """
+
+  def forward_squeezed(self, obs):
+    if self.infserver_addr is None:
+      # prepare fetches dict
+      fetches = {
+        'a': nest.map_structure_up_to(self._ac_structure,
+                                      lambda head: head.sam,
+                                      self.net_out.self_fed_heads),
+        'flatparam': nest.map_structure_up_to(self._ac_structure,
+                                         lambda head: head.flatparam,
+                                         self.net_out.self_fed_heads),
+      }
+    else:
+      fetches = None
+    ret = self._forward(obs, fetches=fetches)
+    ret['state'] = self._last_state
+    return ret.pop('a'), ret
+
+  def update_state(self, obs):
+    fetches = {}
+    self._forward(obs, fetches=fetches)
+    return self._state
+
+
+class GAILAgent(Agent):
+  def __init__(self, *args, **kwargs):
+    super(GAILAgent, self).__init__(*args, **kwargs)
+    self.inputs_ph = self.inputs_ph[0]
+
+  def forward_squeezed(self, obs, action):
+    fetches = {
+      'reward': self.net_out.reward,
+    }
+    # return action, other params for rl
+    ret = self._forward(obs, fetches=fetches, action=action)
+    ret['state'] = self._last_state
+    return ret.pop('reward'), ret
+
+
+class GAILExpertAgent(Agent):
+  def forward_squeezed(self, obs):
+    if self.infserver_addr is None:
+      # prepare fetches dict
+      fetches = {
+        'a': nest.map_structure_up_to(self._ac_structure, lambda head: head.sam,
+                                      self.net_out.self_fed_heads),
+      }
+    else:
+      fetches = None
+    ret = self._forward(obs, fetches=fetches)
+    ret['state'] = self._last_state
+    return ret.pop('a'), ret
+
+  def update_state(self, obs):
+    fetches = {}
+    self._forward(obs, fetches=fetches)
+    return self._state
 
 
 def _squeeze_batch_size_singleton_dim(st):

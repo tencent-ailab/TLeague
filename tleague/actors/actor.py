@@ -3,6 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import time
+import warnings
 from queue import Queue
 from threading import Thread
 
@@ -12,6 +13,8 @@ from tleague.utils import run_parallel
 from tleague.actors.base_actor import BaseActor
 from tleague.utils import logger
 from tleague.utils.tl_types import is_inherit
+from tleague.utils.data_structure import DistillData
+from tleague.model_pools.model_pool_msg import ModelPoolErroMsg
 
 
 def _get_oppo_names(env):
@@ -32,14 +35,36 @@ class Actor(BaseActor):
   Agent 0 is viewed as learning agent, i.e., only the trajectories from
   agents[0] will be pushed to the learner.
   """
-  def __init__(self, env, policy, league_mgr_addr, model_pool_addrs, age_cls,
-               data_type, policy_config=None, distill_policy_config=None,
-               learner_addr=None, unroll_length=32,
-               update_model_freq=32, n_v=1, verbose=0, rwd_shape=True,
-               log_interval_steps=51, distillation=False, replay_dir=None,
-               self_infserver_addr=None, distill_infserver_addr=None,
-               compress=True, use_oppo_obs=False, post_process_data=None,
+  def __init__(self, env,
+               policy,
+               league_mgr_addr,
+               model_pool_addrs,
+               age_cls,
+               data_type,
+               policy_config=None,
+               distill_policy=None,
+               distill_policy_config=None,
+               learner_addr=None,
+               unroll_length=32,
+               update_model_freq=32,
+               n_v=1,
+               verbose=0,
+               rwd_shape=True,
+               log_interval_steps=51,
+               distillation=False,
+               replay_dir=None,
+               self_infserver_addr=None,
+               distill_infserver_addr=None,
+               compress=True,
+               use_oppo_obs=False,
+               post_process_data=None,
+               post_process_spaces=None,
                **kwargs):
+    if len(kwargs) > 0:
+      for k in kwargs:
+        if data_type == DistillData and k == 'pure_distill_type':
+          continue
+        warnings.warn('Unused args passed in Actor: {}'.format(k))
     super(Actor, self).__init__(league_mgr_addr,
                                 model_pool_addrs,
                                 learner_addr,
@@ -70,6 +95,7 @@ class Actor(BaseActor):
     self.rnn = (False if 'use_lstm' not in policy_config
                 else policy_config['use_lstm'])
     self._post_process_data = post_process_data
+    self._post_process_spaces = post_process_spaces
     self.use_oppo_obs = use_oppo_obs
     if self.use_oppo_obs:
       assert self.n_agents == 2, 'use_oppo_obs=True only supports n_agents==2'
@@ -78,7 +104,9 @@ class Actor(BaseActor):
     policy_config = {} if policy_config is None else policy_config
     policy_config['use_loss_type'] = 'none'
     policy_config['use_self_fed_heads'] = True
-    policy_config['batch_size'] = 1
+    # batch_size != 1 only for vec_env
+    if 'batch_size' not in policy_config:
+      policy_config['batch_size'] = 1
 
     # Create self agent
     self_agt = age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name="self",
@@ -88,21 +116,32 @@ class Actor(BaseActor):
     # Create other agents; Opponent does not use value heads.
     # NOTE: After removing opponent's value heads, update_model for opponent
     # in actor updates with a full net with more parameters, so the parameters
-    # of value heads should be located after the policy (as it is currently)
-    policy_config['use_value_head'] = False
-    self.agents = [self_agt] + [
-      age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name=scope_name,
-              policy_config=policy_config, use_gpu_id=-1, infserver_addr=None)
-      for ob_space, ac_space, scope_name in zip(
-        self.env.observation_space.spaces[self._oppo_agent_id:],
-        self.env.action_space.spaces[self._oppo_agent_id:],
-        _get_oppo_names(env)
-      )
-    ]
+    # of value heads should be located after the policy (as it currently is in
+    # sc2)
+    if 'use_value_head' not in policy_config:
+      policy_config['use_value_head'] = False
+    if 'n_agents' in kwargs and kwargs['n_agents'] == 1:
+      self.agents = [self_agt]
+    else:
+      self.agents = [self_agt] + [
+        age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name=scope_name,
+                policy_config=policy_config, use_gpu_id=-1, infserver_addr=None)
+        for ob_space, ac_space, scope_name in zip(
+          self.env.observation_space.spaces[self._oppo_agent_id:],
+          self.env.action_space.spaces[self._oppo_agent_id:],
+          _get_oppo_names(env)
+        )
+      ]
 
     # the data structure
-    self.ds = data_type(ob_space, ac_space, n_v, use_lstm=self.rnn, hs_len=1,
-                        distillation=distillation, use_oppo_obs=use_oppo_obs)
+    if data_type == DistillData:
+      assert 'pure_distill_type' in kwargs, \
+        'DistillActor must be provided with pure_distill_type (ds)'
+      self.ds = data_type(ob_space, ac_space, n_v, use_lstm=self.rnn, hs_len=1,
+                          distill_type=kwargs['pure_distill_type'])
+    else:
+      self.ds = data_type(ob_space, ac_space, n_v, use_lstm=self.rnn, hs_len=1,
+                          distillation=distillation, use_oppo_obs=use_oppo_obs)
     if self._enable_push:
       # Start a data-sending Thread that watches the _data_queue, see also the
       # self._push_data_to_learner() method
@@ -114,12 +153,20 @@ class Actor(BaseActor):
 
     # distillation (i.e., the teacher-student KL regularization)
     self.distillation = distillation and self._enable_push
-    if self._post_process_data:
-      ob_space, ac_space = self._post_process_data(ob_space, ac_space)
+    if self._post_process_spaces:
+      # Note: post_process_data is defined after actor agent, before
+      # distill_agent. This indicates that actor agent takes original
+      # env ob_space and ac_space
+      ob_space, ac_space = self._post_process_spaces(ob_space, ac_space)
     if self.distillation:
+      # This distillation indicates the type of distillation
+      # in AlphaStar and TStarBot-X, which use student to
+      # generate data. Standard distillation uses teacher to
+      # generate data
       distill_policy_config['use_self_fed_heads'] = False
+      distill_policy_func = policy if distill_policy is None else distill_policy
       self.distill_agent = \
-        age_cls(policy, ob_space, ac_space, n_v=n_v, scope_name="distill",
+        age_cls(distill_policy_func, ob_space, ac_space, n_v=n_v, scope_name="distill",
                 policy_config=distill_policy_config, use_gpu_id=-1,
                 infserver_addr=distill_infserver_addr, compress=compress)
     self._replay_dir = replay_dir
@@ -158,16 +205,18 @@ class Actor(BaseActor):
     self._update_agents_model(self.task)  # for agent Neural Net parameters
 
     me_reward_sum = 0.0
+    reward_sum_vec = None
     self.time_beg = time.time()
     self._update_hyperparam(self.task)
     self._changed_task = False
+    t0 = time.time()
     while True:
       self._steps += 1
       # predictions for each agent
       predictions = self._parallel.run((self._agent_pred, ob, i)
                                        for i, ob in enumerate(obs))
       me_prediction = predictions[me_id]
-      me_action, extra_vars = me_prediction[0], me_prediction[1]
+      me_action, extra_vars, other_net_out = me_prediction[0], me_prediction[1], me_prediction[2]
       actions = [me_action] + predictions[oppo_id:]
       # book-keep obs in previous step
       last_obs = obs
@@ -177,6 +226,11 @@ class Actor(BaseActor):
 
       me_rwd_scalar = self._reward_shape(reward[me_id])
       me_reward_sum += me_rwd_scalar
+
+      if reward_sum_vec is not None:
+        reward_sum_vec += np.array(reward)
+      else:
+        reward_sum_vec = np.array(reward)
 
       if self._enable_push:
         # put the interested data (obs, rwd, act, ... for each agent) into the
@@ -189,15 +243,24 @@ class Actor(BaseActor):
         if self.use_oppo_obs:
           extra_vars['oppo_state'] = self.agents[self._oppo_agent_id]._last_state
         if done:
-          outcome = self.log_outcome(info, reward)
+          # outcome = self.log_outcome(info, reward)
+          outcome = self.log_outcome(info, reward_sum_vec)
           if not isinstance(info, dict):
             info = {}
           info['outcome'] = outcome
+        data_tuple = (last_obs, tuple(actions), rwd_to_push, info, done, extra_vars)
         if self._post_process_data:
-          data_tuple = (*zip(*[self._post_process_data(*x) for x in zip(last_obs, actions)]),
-                        rwd_to_push, info, done, extra_vars)
-        else:
-          data_tuple = (last_obs, tuple(actions), rwd_to_push, info, done, extra_vars)
+          # if 'post_process_data' not in info:
+          #   # the original tleague way for sc2
+          #   zipped_data = zip(last_obs, actions)
+          # else:
+          #   assert len(last_obs) == len(actions) == len(info['post_process_data']), \
+          #     'info[post_process_data] must comply with the league training format, ' \
+          #     'which matches the agent number dimension.'
+          #   zipped_data = zip(last_obs, actions, info.pop('post_process_data'))
+          # data_tuple = (*zip(*[self._post_process_data(*x) for x in zipped_data]),
+          #               rwd_to_push, info, done, extra_vars)
+          data_tuple = self._post_process_data(*data_tuple, other_net_out)
         if self._data_queue.full():
           logger.log("Actor's queue is full.", level=logger.WARN)
         self._data_queue.put(data_tuple)
@@ -205,7 +268,8 @@ class Actor(BaseActor):
 
       if self._steps % self._log_interval_steps == 0:
         logger.log('_rollout_an_episode,', 'steps: {},'.format(self._steps),
-                   'data qsize: {}'.format(self._data_queue.qsize()))
+                   'data qsize: {}'.format(self._data_queue.qsize()),
+                   'rollout fps: {}'.format(self._steps / (time.time() - t0 + 1e-8)))
 
       if done:
         # an episode ends
@@ -213,8 +277,13 @@ class Actor(BaseActor):
           self._save_replay()
         self.log_kvs(me_reward_sum, info)
         if self._changed_task:
+          # if the actor task has changed during an episode, then it indicates
+          # that the model has changed during the episode and so the info['outcome']
+          # should not be counted for that player in league
           return None, info
         else:
+          if 'outcome' not in info:
+            info['outcome'] = None
           return info['outcome'], info
 
       if self._update_model_freq and self._steps % self._update_model_freq == 0:
@@ -253,7 +322,11 @@ class Actor(BaseActor):
       pass
 
   def _should_update_model(self, model, model_key):
-    if model is None or model_key != model.key:
+    if model is None:
+      return True
+    elif isinstance(model, ModelPoolErroMsg):
+      return True
+    elif model_key != model.key:
       return True
     elif model.is_freezed():
       return False
@@ -321,19 +394,27 @@ class Actor(BaseActor):
 
   def log_kvs(self, reward_sum, info):
     time_end = time.time()
-    logger.logkvs({
+    temp = {
       'producing_fps': self._steps / (time_end - self.time_beg),
       'reward_sum': reward_sum,
       'episode_steps': self._steps,
-    })
+    }
+    logger.logkvs(temp)
     if self.should_log_info:  # log additional info fields
       if isinstance(info, dict):
         logger.logkvs(info)
       else:
         logger.log(info)
+    if isinstance(info, dict):
+      for k, v in temp.items():
+        if k not in info:
+          info[k] = v
     logger.dumpkvs()
 
   def log_outcome(self, info, rwd):
+    # Previously this log_outcome function only works for sparse reward game
+    # it only records the terminate immediate reward (first channel, win-loss
+    # in sc2)
     if not isinstance(info, dict) or 'outcome' not in info:
       logger.log("info['outcome'] not available, get it from reward",
                  level=logger.WARN)

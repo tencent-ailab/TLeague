@@ -45,6 +45,7 @@ flags.DEFINE_integer("rm_size", 64000, "Num of samples in replay memory")
 flags.DEFINE_integer("pub_interval", 500,
                      "freq of pub model to actors, in num of batch")
 flags.DEFINE_integer("log_interval", 100, "freq of print log, in num of batch")
+flags.DEFINE_string("training_log_dir", "training_log", "path to save log")
 flags.DEFINE_integer("save_interval", 0, "freq of save model, in num of batch")
 flags.DEFINE_integer("batch_worker_num", 4, "batch_worker_num")
 flags.DEFINE_integer("pull_worker_num", 2, "pull_worker_num")
@@ -53,7 +54,8 @@ flags.DEFINE_integer("total_timesteps", 50000000,
                      "i.e., steps before adding the current model to the pool.")
 flags.DEFINE_integer("burn_in_timesteps", 0,
                      "total time steps for each learning period to burn in at beginning.")
-flags.DEFINE_string("env", "sc2", "task env")
+flags.DEFINE_string("env", None, "task env, e.g., sc2")
+flags.DEFINE_string("outer_env", None, "envs that are not in TLeague")
 flags.DEFINE_string("env_config", "",
                     "python dict config used for env. "
                     "e.g., {'replay_dir': '/root/replays/ext471_zvz'}")
@@ -90,7 +92,15 @@ def main(_):
 
   env_config = read_config_dict(FLAGS.env_config)
   interface_config = read_config_dict(FLAGS.interface_config)
-  ob_space, ac_space = env_space(FLAGS.env, env_config, interface_config)
+  if FLAGS.env is not None:
+    env = FLAGS.env
+    ob_space, ac_space = env_space(env, env_config, interface_config)
+  elif FLAGS.outer_env is not None:
+    creat_env_func = import_module_or_data(FLAGS.outer_env)
+    env = creat_env_func(**env_config)
+    ob_space, ac_space = env.observation_space, env.action_space
+  else:
+    raise NotImplementedError("No environment defined.")
   if FLAGS.post_process_data is not None:
     post_process_data = import_module_or_data(FLAGS.post_process_data)
     ob_space, ac_space = post_process_data(ob_space, ac_space)
@@ -130,6 +140,7 @@ def main(_):
                     data_server_version=FLAGS.data_server_version,
                     decode=FLAGS.decode,
                     log_infos_interval=FLAGS.log_infos_interval,
+                    log_dir=FLAGS.training_log_dir,
                     **learner_config)
   learner.run()
 
